@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 42" role="img" aria-label="enemy shot">
+  <defs>
+    <linearGradient id="enemyBolt" x1="15" y1="0" x2="15" y2="42" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset=".48" stop-color="#ffd166"/>
+      <stop offset="1" stop-color="#ff5f78" stop-opacity=".45"/>
+    </linearGradient>
+  </defs>
+  <path d="M15 41 4 20 13 1 26 20Z" fill="url(#enemyBolt)"/>
+</svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 92" role="img" aria-label="enemy scout">
+  <defs>
+    <linearGradient id="body" x1="14" y1="12" x2="78" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff5f78"/>
+      <stop offset=".56" stop-color="#ff9e6d"/>
+      <stop offset="1" stop-color="#47121f"/>
+    </linearGradient>
+  </defs>
+  <path d="M46 82 62 50 84 29 56 35 46 9 36 35 8 29 30 50Z" fill="url(#body)" stroke="#ffd5c2" stroke-width="2"/>
+  <path d="M36 40 46 24 56 40 46 52Z" fill="#160b12" opacity=".7"/>
+  <path d="M29 58 15 76 38 66Z" fill="#ffcf70"/>
+  <path d="M63 58 77 76 54 66Z" fill="#ffcf70"/>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="player starfighter">
+  <defs>
+    <linearGradient id="hull" x1="18" y1="88" x2="78" y2="8" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38d7ff"/>
+      <stop offset=".54" stop-color="#e9fbff"/>
+      <stop offset="1" stop-color="#64f2a4"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="10" y1="64" x2="86" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#168fb0"/>
+      <stop offset=".5" stop-color="#85f3ff"/>
+      <stop offset="1" stop-color="#27b58e"/>
+    </linearGradient>
+  </defs>
+  <path d="M48 5 61 58 48 91 35 58Z" fill="url(#hull)" stroke="#dffbff" stroke-width="2"/>
+  <path d="M35 50 6 76 39 69Z" fill="url(#wing)" stroke="#85f3ff" stroke-width="2"/>
+  <path d="M61 50 90 76 57 69Z" fill="url(#wing)" stroke="#85f3ff" stroke-width="2"/>
+  <path d="M42 34 48 16 56 34 48 45Z" fill="#08131a" opacity=".7"/>
+  <path d="M33 70 25 88 41 78Z" fill="#ffbf69"/>
+  <path d="M63 70 71 88 55 78Z" fill="#ffbf69"/>
+</svg>

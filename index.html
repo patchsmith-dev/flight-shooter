@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="星翼突击是一款可直接在浏览器运行的飞行射击小游戏。"
+    />
+    <title>星翼突击 | Flight Shooter</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+    <script defer src="./src/game.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="stage-wrap" aria-label="星翼突击游戏区域">
+        <div id="game-root"></div>
+        <div class="screen-overlay" id="screenOverlay">
+          <div class="mission-badge">ARC-27</div>
+          <h1 id="overlayTitle">星翼突击</h1>
+          <p id="overlayCopy">穿过碎星航道，守住最后一道轨道门。</p>
+          <button class="primary-command" id="primaryAction" type="button">启动</button>
+        </div>
+      </section>
+
+      <aside class="command-deck" aria-label="游戏状态">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <p>STARWING</p>
+            <strong>星翼突击</strong>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <span>得分</span>
+            <strong id="scoreValue">0</strong>
+          </div>
+          <div class="stat-card">
+            <span>波次</span>
+            <strong id="waveValue">1</strong>
+          </div>
+          <div class="stat-card">
+            <span>生命</span>
+            <strong id="livesValue">3</strong>
+          </div>
+          <div class="stat-card">
+            <span>护盾</span>
+            <strong id="shieldValue">0</strong>
+          </div>
+        </div>
+
+        <div class="threat-meter" aria-label="威胁等级">
+          <div>
+            <span>威胁</span>
+            <strong id="threatLabel">低</strong>
+          </div>
+          <div class="meter-track">
+            <span id="threatFill"></span>
+          </div>
+        </div>
+
+        <div class="deck-actions">
+          <button class="icon-button" id="pauseButton" type="button" title="暂停" aria-label="暂停">
+            II
+          </button>
+          <button class="icon-button" id="restartButton" type="button" title="重开" aria-label="重开">
+            ↻
+          </button>
+          <button class="icon-button" id="fullscreenButton" type="button" title="全屏" aria-label="全屏">
+            ⛶
+          </button>
+        </div>
+
+        <div class="pilot-feed" aria-live="polite">
+          <span></span>
+          <p id="feedText">等待发射许可。</p>
+        </div>
+      </aside>
+    </main>
+  </body>
+</html>

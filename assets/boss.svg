@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 160" role="img" aria-label="enemy command ship">
+  <defs>
+    <linearGradient id="bossHull" x1="20" y1="16" x2="160" y2="142" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#b98cff"/>
+      <stop offset=".45" stop-color="#ff5f78"/>
+      <stop offset="1" stop-color="#2a0c22"/>
+    </linearGradient>
+    <linearGradient id="bossWing" x1="0" y1="72" x2="180" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#32172f"/>
+      <stop offset=".5" stop-color="#ff9aa9"/>
+      <stop offset="1" stop-color="#32172f"/>
+    </linearGradient>
+  </defs>
+  <path d="M90 16 118 68 170 91 119 107 90 148 61 107 10 91 62 68Z" fill="url(#bossHull)" stroke="#ffd4ff" stroke-width="3"/>
+  <path d="M52 62 8 36 36 94Z" fill="url(#bossWing)" stroke="#ffb3c4" stroke-width="2"/>
+  <path d="M128 62 172 36 144 94Z" fill="url(#bossWing)" stroke="#ffb3c4" stroke-width="2"/>
+  <path d="M68 70 90 35 112 70 104 96 76 96Z" fill="#130915" opacity=".82"/>
+  <circle cx="47" cy="88" r="7" fill="#ffd166"/>
+  <circle cx="133" cy="88" r="7" fill="#ffd166"/>
+  <circle cx="90" cy="106" r="9" fill="#38d7ff"/>
+</svg>
