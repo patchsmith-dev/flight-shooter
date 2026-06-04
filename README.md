@@ -8,7 +8,7 @@
 - 8 波战斗节奏，每 4 波出现 Boss
 - 护盾与火力强化道具
 - 响应式界面，桌面和移动端都能游玩
-- 本地 SVG 资产，页面打开即可加载
+- 保留 SVG 素材源文件，运行时使用 Phaser 绘制稳定的 Canvas 纹理
 
 ## 本地运行
 
@@ -32,7 +32,7 @@ http://localhost:5177
 
 ## 技术栈
 
-- Phaser 3.90.0
+- Phaser 3.90.0 Canvas Renderer
 - HTML5 Canvas
 - CSS Grid
 - 原生 JavaScript
