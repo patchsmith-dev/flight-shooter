@@ -345,6 +345,7 @@ class StarwingScene extends Phaser.Scene {
 
   createPlayer() {
     this.player = this.physics.add.image(this.bounds.width / 2, this.bounds.height - 86, "player");
+    this.player.isPlayer = true;
     this.player.setScale(0.82);
     this.player.setDepth(3);
     this.player.setCollideWorldBounds(true);
@@ -558,6 +559,7 @@ class StarwingScene extends Phaser.Scene {
     const xStep = this.bounds.width / 7;
     const spawnX = xStep + (index % 6) * xStep + Phaser.Math.Between(-22, 22);
     const enemy = this.enemies.create(spawnX, -52, type.key);
+    enemy.isEnemy = true;
     enemy.enemyType = typeName;
     enemy.hp = type.hp + Math.floor(this.wave / 3);
     enemy.scoreValue = type.score;
@@ -573,6 +575,7 @@ class StarwingScene extends Phaser.Scene {
 
   spawnBoss() {
     const boss = this.enemies.create(this.bounds.width / 2, -126, "boss");
+    boss.isEnemy = true;
     boss.isBoss = true;
     boss.hp = 58 + this.wave * 14;
     boss.maxHp = boss.hp;
@@ -712,6 +715,7 @@ class StarwingScene extends Phaser.Scene {
     shots.forEach((offset, index) => {
       const bullet = this.playerBullets.getFirstDead(false) || this.playerBullets.create(0, 0, "playerShot");
       if (!bullet) return;
+      bullet.isPlayerShot = true;
       bullet.enableBody(true, this.player.x + offset, this.player.y - 34, true, true);
       bullet.setScale(index === 1 || shots.length === 1 ? 0.72 : 0.62);
       bullet.setVelocity(offset * 5, -580);
@@ -727,6 +731,7 @@ class StarwingScene extends Phaser.Scene {
     for (let i = 0; i < shotCount; i += 1) {
       const bullet = this.enemyBullets.getFirstDead(false) || this.enemyBullets.create(0, 0, "enemyShot");
       if (!bullet) return;
+      bullet.isEnemyShot = true;
       bullet.enableBody(true, enemy.x, enemy.y + 38, true, true);
       bullet.setScale(enemy.isBoss ? 0.74 : 0.58);
       bullet.setVelocity(spread[i], enemy.isBoss ? 240 : 260 + this.wave * 12);
@@ -735,7 +740,10 @@ class StarwingScene extends Phaser.Scene {
     }
   }
 
-  hitEnemy(bullet, enemy) {
+  hitEnemy(firstObject, secondObject) {
+    const bullet = firstObject?.isPlayerShot ? firstObject : secondObject?.isPlayerShot ? secondObject : null;
+    const enemy = firstObject?.isEnemy ? firstObject : secondObject?.isEnemy ? secondObject : null;
+    if (!bullet || !enemy) return;
     if (!bullet.active || !enemy.active) return;
     bullet.destroy();
     enemy.hp -= bullet.damage || 1;
@@ -767,15 +775,24 @@ class StarwingScene extends Phaser.Scene {
 
   dropPower(x, y, type) {
     const power = this.powerUps.create(x, y, "powerCore");
+    power.isPowerUp = true;
     power.powerType = type;
+    power.collected = false;
     power.setScale(type === "weapon" ? 0.62 : 0.68);
     power.setTint(type === "weapon" ? 0xffd166 : 0x64f2a4);
     power.setVelocity(0, 118);
     power.setCircle(24, 8, 8);
   }
 
-  collectPower(power) {
-    if (!power.active) return;
+  collectPower(firstObject, secondObject) {
+    const power = firstObject?.isPowerUp ? firstObject : secondObject?.isPowerUp ? secondObject : null;
+    if (!power || !power.active || power.collected) return;
+
+    power.collected = true;
+    const powerX = power.x;
+    const powerY = power.y;
+    power.disableBody(true, true);
+
     if (power.powerType === "weapon") {
       this.weaponBoostUntil = this.time.now + 8500;
       this.updateHud("武器核心同步，火力阵列展开。");
@@ -784,18 +801,24 @@ class StarwingScene extends Phaser.Scene {
       this.updateHud("护盾电容补足。");
     }
     this.score += 120;
-    this.explosions.emitParticleAt(power.x, power.y, 16);
+    this.explosions.emitParticleAt(powerX, powerY, 16);
     power.destroy();
   }
 
-  hitPlayer(player, bullet) {
+  hitPlayer(firstObject, secondObject) {
+    const bullet = firstObject?.isEnemyShot ? firstObject : secondObject?.isEnemyShot ? secondObject : null;
+    const player = firstObject?.isPlayer ? firstObject : secondObject?.isPlayer ? secondObject : null;
+    if (!bullet || !player) return;
     if (!bullet.active || this.state !== GAME_STATE.PLAYING) return;
     bullet.destroy();
     if (this.invulnerableUntil > this.time.now) return;
     this.damagePlayer(22);
   }
 
-  enemyRammedPlayer(player, enemy) {
+  enemyRammedPlayer(firstObject, secondObject) {
+    const enemy = firstObject?.isEnemy ? firstObject : secondObject?.isEnemy ? secondObject : null;
+    const player = firstObject?.isPlayer ? firstObject : secondObject?.isPlayer ? secondObject : null;
+    if (!enemy || !player) return;
     if (!enemy.active || this.state !== GAME_STATE.PLAYING) return;
     this.destroyEnemy(enemy);
     this.damagePlayer(32);
