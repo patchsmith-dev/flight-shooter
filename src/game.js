@@ -25,6 +25,12 @@ const GAME_STATE = {
   VICTORY: "victory",
 };
 
+const READY_OVERLAY = {
+  title: "星翼突击",
+  copy: "穿过碎星航道，守住最后一道轨道门。",
+  action: "启动",
+};
+
 const ENEMY_TYPES = {
   scout: {
     key: "enemyScout",
@@ -58,9 +64,14 @@ class StarwingScene extends Phaser.Scene {
     this.shield = 0;
     this.weaponLevel = 1;
     this.weaponBoostUntil = 0;
+    this.invulnerableUntil = 0;
     this.lastShotAt = 0;
     this.waveActive = false;
     this.pendingSpawns = 0;
+    this.spawnTimers = [];
+    this.nextWaveTimer = null;
+    this.uiAbort = null;
+    this.autoStartAfterRestart = false;
     this.boss = null;
   }
 
@@ -68,6 +79,9 @@ class StarwingScene extends Phaser.Scene {
   }
 
   create() {
+    const shouldAutoStart = this.autoStartAfterRestart === true;
+    this.autoStartAfterRestart = false;
+    this.resetGameState();
     this.bounds = {
       width: this.scale.width,
       height: this.scale.height,
@@ -79,11 +93,20 @@ class StarwingScene extends Phaser.Scene {
     this.createInput();
     this.createCollisions();
     this.bindUi();
+    this.resetRuntimeState();
+    this.events.once("shutdown", this.cleanupScene, this);
+    this.events.once("destroy", this.cleanupScene, this);
     this.updateHud("等待发射许可。");
     this.scale.on("resize", this.handleResize, this);
+
+    if (shouldAutoStart) {
+      this.startMission();
+    }
   }
 
   createGeneratedTextures() {
+    if (this.textures.exists("player")) return;
+
     const graphics = this.add.graphics();
     const makeTexture = (key, width, height, draw) => {
       graphics.clear();
@@ -352,11 +375,16 @@ class StarwingScene extends Phaser.Scene {
     });
 
     this.input.on("pointerdown", (pointer) => {
-      if (this.state === GAME_STATE.READY || this.state === GAME_STATE.GAME_OVER) {
+      if (
+        this.state === GAME_STATE.READY ||
+        this.state === GAME_STATE.GAME_OVER ||
+        this.state === GAME_STATE.VICTORY
+      ) {
         this.startMission();
         return;
       }
 
+      if (this.state !== GAME_STATE.PLAYING) return;
       this.pointerTarget = {
         x: pointer.x,
         y: pointer.y,
@@ -372,10 +400,47 @@ class StarwingScene extends Phaser.Scene {
   }
 
   bindUi() {
-    HUD.primaryAction.addEventListener("click", () => this.startMission());
-    HUD.pauseButton.addEventListener("click", () => this.togglePause());
-    HUD.restartButton.addEventListener("click", () => this.restartMission());
-    HUD.fullscreenButton.addEventListener("click", () => this.toggleFullscreen());
+    this.uiAbort?.abort();
+    this.uiAbort = new AbortController();
+    const options = { signal: this.uiAbort.signal };
+
+    HUD.primaryAction.addEventListener("click", () => this.startMission(), options);
+    HUD.pauseButton.addEventListener("click", () => this.togglePause(), options);
+    HUD.restartButton.addEventListener("click", () => this.restartMission(true), options);
+    HUD.fullscreenButton.addEventListener("click", () => this.toggleFullscreen(), options);
+  }
+
+  resetGameState() {
+    this.state = GAME_STATE.READY;
+    this.score = 0;
+    this.wave = 1;
+    this.lives = 3;
+    this.shield = 0;
+    this.weaponLevel = 1;
+    this.weaponBoostUntil = 0;
+    this.invulnerableUntil = 0;
+    this.lastShotAt = 0;
+    this.waveActive = false;
+    this.pendingSpawns = 0;
+    this.spawnTimers = [];
+    this.nextWaveTimer = null;
+    this.pointerTarget = null;
+    this.boss = null;
+  }
+
+  resetRuntimeState() {
+    this.time.paused = false;
+    this.physics.world.resume();
+    this.tweens.resumeAll();
+    HUD.pauseButton.textContent = "II";
+    this.showOverlay(READY_OVERLAY.title, READY_OVERLAY.copy, READY_OVERLAY.action);
+  }
+
+  cleanupScene() {
+    this.clearWaveTimers();
+    this.scale.off("resize", this.handleResize, this);
+    this.uiAbort?.abort();
+    this.uiAbort = null;
   }
 
   startMission() {
@@ -385,17 +450,25 @@ class StarwingScene extends Phaser.Scene {
       return;
     }
     if (this.state === GAME_STATE.GAME_OVER || this.state === GAME_STATE.VICTORY) {
-      this.restartMission();
+      this.restartMission(true);
       return;
     }
 
     this.state = GAME_STATE.PLAYING;
+    this.time.paused = false;
+    this.physics.world.resume();
+    this.tweens.resumeAll();
     this.hideOverlay();
     this.updateHud("推进器点火，航道清空中。");
     this.spawnWave();
   }
 
-  restartMission() {
+  restartMission(autoStart = false) {
+    this.autoStartAfterRestart = autoStart;
+    this.clearWaveTimers();
+    this.time.paused = false;
+    this.physics.world.resume();
+    this.tweens.resumeAll();
     this.scene.restart();
   }
 
@@ -410,19 +483,20 @@ class StarwingScene extends Phaser.Scene {
   }
 
   pauseMission() {
+    if (this.state !== GAME_STATE.PLAYING) return;
     this.state = GAME_STATE.PAUSED;
+    HUD.pauseButton.textContent = "▶";
+    this.showOverlay("系统待命", "引擎保持热态，目标锁定未丢失。", "继续");
+    this.updateHud("战术暂停。");
     this.physics.world.pause();
     this.tweens.pauseAll();
-    HUD.pauseButton.textContent = "▶";
-    HUD.overlayTitle.textContent = "系统待命";
-    HUD.overlayCopy.textContent = "引擎保持热态，目标锁定未丢失。";
-    HUD.primaryAction.textContent = "继续";
-    HUD.overlay.classList.remove("is-hidden");
-    this.updateHud("战术暂停。");
+    this.time.paused = true;
   }
 
   resumeMission() {
+    if (this.state !== GAME_STATE.PAUSED) return;
     this.state = GAME_STATE.PLAYING;
+    this.time.paused = false;
     this.physics.world.resume();
     this.tweens.resumeAll();
     HUD.pauseButton.textContent = "II";
@@ -438,6 +512,13 @@ class StarwingScene extends Phaser.Scene {
     this.scale.startFullscreen();
   }
 
+  showOverlay(title, copy, action) {
+    HUD.overlayTitle.textContent = title;
+    HUD.overlayCopy.textContent = copy;
+    HUD.primaryAction.textContent = action;
+    HUD.overlay.classList.remove("is-hidden");
+  }
+
   hideOverlay() {
     HUD.overlay.classList.add("is-hidden");
     HUD.primaryAction.textContent = "启动";
@@ -446,6 +527,7 @@ class StarwingScene extends Phaser.Scene {
   spawnWave() {
     if (this.state !== GAME_STATE.PLAYING) return;
 
+    this.clearWaveTimers();
     this.waveActive = true;
     const isBossWave = this.wave % 4 === 0;
     if (isBossWave) {
@@ -458,12 +540,14 @@ class StarwingScene extends Phaser.Scene {
     const enemyCount = Math.min(22, 7 + this.wave * 2);
     this.pendingSpawns = enemyCount;
     for (let index = 0; index < enemyCount; index += 1) {
-      this.time.delayedCall(index * 220, () => {
+      const timer = this.time.delayedCall(index * 220, () => {
+        this.spawnTimers = this.spawnTimers.filter((spawnTimer) => spawnTimer !== timer);
         this.pendingSpawns = Math.max(0, this.pendingSpawns - 1);
         if (this.state !== GAME_STATE.PLAYING) return;
         const type = index % 5 === 4 || (this.wave > 5 && index % 4 === 2) ? "heavy" : "scout";
         this.spawnEnemy(type, index);
       });
+      this.spawnTimers.push(timer);
     }
 
     this.updateHud(`第 ${this.wave} 波接敌。`);
@@ -516,22 +600,24 @@ class StarwingScene extends Phaser.Scene {
   update(time, delta) {
     this.updateStars(delta);
     this.updatePlayer(delta);
-    this.updateEnemies(time, delta);
-    this.updateProjectiles();
-    this.updatePowerUps(delta);
 
     if (this.state !== GAME_STATE.PLAYING) return;
 
-    if (this.keys.pause.isDown) {
+    if (Phaser.Input.Keyboard.JustDown(this.keys.pause)) {
       this.pauseMission();
+      return;
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.keys.restart)) {
-      this.restartMission();
+      this.restartMission(true);
+      return;
     }
 
     const isBoosted = this.weaponBoostUntil > time;
     this.weaponLevel = isBoosted ? 3 : 1;
+    this.updateEnemies(time, delta);
+    this.updateProjectiles();
+    this.updatePowerUps(delta);
     this.firePlayerWeapon(time);
     this.checkWaveClear();
   }
@@ -572,6 +658,7 @@ class StarwingScene extends Phaser.Scene {
     this.player.x = clamp(this.player.x, 42, this.bounds.width - 42);
     this.player.y = clamp(this.player.y, this.bounds.height * 0.42, this.bounds.height - 42);
     this.playerAura.setPosition(this.player.x, this.player.y);
+    this.player.setAlpha(this.invulnerableUntil > this.time.now ? 0.58 + Math.sin(this.time.now / 58) * 0.22 : 1);
     this.playerAura.setAlpha(this.shield > 0 ? 0.25 + Math.sin(this.time.now / 120) * 0.08 : 0.08);
     this.playerAura.setRadius(this.shield > 0 ? 52 : 42);
   }
@@ -624,6 +711,7 @@ class StarwingScene extends Phaser.Scene {
     const shots = this.weaponLevel > 1 ? [-13, 0, 13] : [0];
     shots.forEach((offset, index) => {
       const bullet = this.playerBullets.getFirstDead(false) || this.playerBullets.create(0, 0, "playerShot");
+      if (!bullet) return;
       bullet.enableBody(true, this.player.x + offset, this.player.y - 34, true, true);
       bullet.setScale(index === 1 || shots.length === 1 ? 0.72 : 0.62);
       bullet.setVelocity(offset * 5, -580);
@@ -638,6 +726,7 @@ class StarwingScene extends Phaser.Scene {
     const spread = enemy.isBoss ? [-210, -105, 0, 105, 210] : [0];
     for (let i = 0; i < shotCount; i += 1) {
       const bullet = this.enemyBullets.getFirstDead(false) || this.enemyBullets.create(0, 0, "enemyShot");
+      if (!bullet) return;
       bullet.enableBody(true, enemy.x, enemy.y + 38, true, true);
       bullet.setScale(enemy.isBoss ? 0.74 : 0.58);
       bullet.setVelocity(spread[i], enemy.isBoss ? 240 : 260 + this.wave * 12);
@@ -660,6 +749,7 @@ class StarwingScene extends Phaser.Scene {
   }
 
   destroyEnemy(enemy) {
+    this.tweens.killTweensOf(enemy);
     this.score += enemy.scoreValue || 100;
     this.explosions.emitParticleAt(enemy.x, enemy.y, enemy.isBoss ? 66 : 24);
 
@@ -701,6 +791,7 @@ class StarwingScene extends Phaser.Scene {
   hitPlayer(player, bullet) {
     if (!bullet.active || this.state !== GAME_STATE.PLAYING) return;
     bullet.destroy();
+    if (this.invulnerableUntil > this.time.now) return;
     this.damagePlayer(22);
   }
 
@@ -711,6 +802,8 @@ class StarwingScene extends Phaser.Scene {
   }
 
   damagePlayer(amount) {
+    if (this.invulnerableUntil > this.time.now) return;
+
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
       this.shield -= absorbed;
@@ -726,6 +819,7 @@ class StarwingScene extends Phaser.Scene {
     }
 
     this.lives -= 1;
+    this.invulnerableUntil = this.time.now + 1300;
     this.player.setTint(0xff9aa9);
     this.time.delayedCall(130, () => {
       if (this.player.active) this.player.clearTint();
@@ -749,23 +843,36 @@ class StarwingScene extends Phaser.Scene {
 
     this.wave += 1;
     this.updateHud(`航道暂时清空，准备第 ${this.wave} 波。`);
-    this.time.delayedCall(1150, () => this.spawnWave());
+    this.nextWaveTimer = this.time.delayedCall(1150, () => {
+      this.nextWaveTimer = null;
+      this.spawnWave();
+    });
   }
 
   endMission(victory) {
+    if (this.state === GAME_STATE.GAME_OVER || this.state === GAME_STATE.VICTORY) return;
+    this.clearWaveTimers();
     this.state = victory ? GAME_STATE.VICTORY : GAME_STATE.GAME_OVER;
+    this.time.paused = false;
     this.physics.world.pause();
     this.tweens.pauseAll();
     this.enemyBullets.clear(true, true);
     this.playerBullets.clear(true, true);
     this.powerUps.clear(true, true);
-    HUD.overlayTitle.textContent = victory ? "轨道门安全" : "通讯中断";
-    HUD.overlayCopy.textContent = victory
-      ? `最终得分 ${this.score}，星港进入夜航模式。`
-      : `最终得分 ${this.score}，救援信标已发出。`;
-    HUD.primaryAction.textContent = "再来一局";
-    HUD.overlay.classList.remove("is-hidden");
+    this.showOverlay(
+      victory ? "轨道门安全" : "通讯中断",
+      victory ? `最终得分 ${this.score}，星港进入夜航模式。` : `最终得分 ${this.score}，救援信标已发出。`,
+      "再来一局"
+    );
     this.updateHud(victory ? "任务完成。" : "任务失败。");
+  }
+
+  clearWaveTimers() {
+    this.spawnTimers.forEach((timer) => timer.remove(false));
+    this.spawnTimers = [];
+    this.nextWaveTimer?.remove(false);
+    this.nextWaveTimer = null;
+    this.pendingSpawns = 0;
   }
 
   updateHud(message) {
