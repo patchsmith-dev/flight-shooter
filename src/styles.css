@@ -284,6 +284,15 @@ button {
   background: rgba(255, 95, 120, 0.055);
 }
 
+.laser-row {
+  border-color: rgba(185, 140, 255, 0.22);
+  background: rgba(185, 140, 255, 0.05);
+}
+
+.laser-track span {
+  background: linear-gradient(90deg, var(--violet), var(--cyan), #ffffff);
+}
+
 .boss-track span {
   background: linear-gradient(90deg, var(--red), var(--amber));
 }

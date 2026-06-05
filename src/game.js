@@ -9,6 +9,8 @@ const HUD = {
   shield: document.getElementById("shieldValue"),
   boostLabel: document.getElementById("boostLabel"),
   boostFill: document.getElementById("boostFill"),
+  laserLabel: document.getElementById("laserLabel"),
+  laserFill: document.getElementById("laserFill"),
   bossPanel: document.getElementById("bossPanel"),
   bossLabel: document.getElementById("bossLabel"),
   bossFill: document.getElementById("bossFill"),
@@ -40,6 +42,16 @@ const READY_OVERLAY = {
 
 const STORAGE_KEYS = {
   highScore: "starwing.highScore",
+};
+
+const LASER_CONFIG = {
+  minChargeMs: 420,
+  fullChargeMs: 1800,
+  cooldownMs: 2300,
+  baseDamage: 5,
+  maxBonusDamage: 18,
+  minWidth: 18,
+  maxWidth: 74,
 };
 
 const POWER_TYPES = {
@@ -113,6 +125,11 @@ class StarwingScene extends Phaser.Scene {
     this.weaponLevel = 1;
     this.weaponBoostUntil = 0;
     this.invulnerableUntil = 0;
+    this.laserCharging = false;
+    this.laserChargeStartedAt = 0;
+    this.laserChargeRatio = 0;
+    this.laserCooldownUntil = 0;
+    this.laserButton = null;
     this.combo = 0;
     this.comboMultiplier = 1;
     this.comboWindowUntil = 0;
@@ -407,6 +424,7 @@ class StarwingScene extends Phaser.Scene {
   }
 
   createInput() {
+    this.input.mouse?.disableContextMenu?.();
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.W,
@@ -441,6 +459,15 @@ class StarwingScene extends Phaser.Scene {
         x: pointer.x,
         y: pointer.y,
       };
+      this.beginLaserCharge(pointer);
+    });
+
+    this.input.on("pointerup", (pointer) => {
+      if (this.state !== GAME_STATE.PLAYING) {
+        this.cancelLaserCharge();
+        return;
+      }
+      this.releaseLaserCharge(pointer);
     });
   }
 
@@ -460,6 +487,8 @@ class StarwingScene extends Phaser.Scene {
     HUD.pauseButton.addEventListener("click", () => this.togglePause(), options);
     HUD.restartButton.addEventListener("click", () => this.restartMission(true), options);
     HUD.fullscreenButton.addEventListener("click", () => this.toggleFullscreen(), options);
+    document.getElementById("game-root")?.addEventListener("contextmenu", (event) => event.preventDefault(), options);
+    document.querySelector(".stage-wrap")?.addEventListener("contextmenu", (event) => event.preventDefault(), options);
   }
 
   resetGameState() {
@@ -473,6 +502,11 @@ class StarwingScene extends Phaser.Scene {
     this.weaponLevel = 1;
     this.weaponBoostUntil = 0;
     this.invulnerableUntil = 0;
+    this.laserCharging = false;
+    this.laserChargeStartedAt = 0;
+    this.laserChargeRatio = 0;
+    this.laserCooldownUntil = 0;
+    this.laserButton = null;
     this.combo = 0;
     this.comboMultiplier = 1;
     this.comboWindowUntil = 0;
@@ -522,6 +556,118 @@ class StarwingScene extends Phaser.Scene {
     }
   }
 
+  getPointerButton(pointer) {
+    const eventButton = pointer?.event?.button;
+    return Number.isInteger(eventButton) ? eventButton : pointer?.button;
+  }
+
+  isLaserButton(pointer) {
+    const button = this.getPointerButton(pointer);
+    return button === 0 || button === 2;
+  }
+
+  beginLaserCharge(pointer) {
+    if (!this.isLaserButton(pointer) || this.laserCharging) return;
+
+    const cooldownRemaining = Math.max(0, this.laserCooldownUntil - this.time.now);
+    if (cooldownRemaining > 0) {
+      this.updateHud(`激光炮冷却中，还需 ${(cooldownRemaining / 1000).toFixed(1)} 秒。`);
+      return;
+    }
+
+    this.laserCharging = true;
+    this.laserChargeStartedAt = this.time.now;
+    this.laserChargeRatio = 0;
+    this.laserButton = this.getPointerButton(pointer);
+    this.updateHud("激光炮开始蓄力。");
+  }
+
+  releaseLaserCharge(pointer) {
+    if (!this.laserCharging) return;
+
+    const button = this.getPointerButton(pointer);
+    if ((button === 0 || button === 2) && button !== this.laserButton) return;
+
+    const chargeMs = Math.max(0, this.time.now - this.laserChargeStartedAt);
+    const chargeRatio = clamp(chargeMs / LASER_CONFIG.fullChargeMs, 0, 1);
+    this.cancelLaserCharge();
+
+    if (chargeMs < LASER_CONFIG.minChargeMs) {
+      this.updateHud("激光炮蓄力不足。");
+      return;
+    }
+
+    this.fireLaser(chargeRatio);
+    this.laserCooldownUntil = this.time.now + LASER_CONFIG.cooldownMs;
+  }
+
+  cancelLaserCharge() {
+    this.laserCharging = false;
+    this.laserChargeStartedAt = 0;
+    this.laserChargeRatio = 0;
+    this.laserButton = null;
+  }
+
+  updateLaserCharge(time) {
+    if (!this.laserCharging) return;
+    this.laserChargeRatio = clamp((time - this.laserChargeStartedAt) / LASER_CONFIG.fullChargeMs, 0, 1);
+  }
+
+  fireLaser(chargeRatio) {
+    if (!this.player?.active) return;
+
+    const width = Phaser.Math.Linear(LASER_CONFIG.minWidth, LASER_CONFIG.maxWidth, chargeRatio);
+    const damage = Math.round(LASER_CONFIG.baseDamage + LASER_CONFIG.maxBonusDamage * chargeRatio);
+    const beamHeight = Math.max(32, this.player.y);
+    const beamX = this.player.x;
+    const beamY = beamHeight / 2;
+    const outerBeam = this.add.rectangle(beamX, beamY, width, beamHeight, 0xb98cff, 0.42);
+    const coreBeam = this.add.rectangle(beamX, beamY, Math.max(8, width * 0.34), beamHeight, 0xf7ffff, 0.86);
+    outerBeam.setDepth(4);
+    coreBeam.setDepth(5);
+
+    this.tweens.add({
+      targets: [outerBeam, coreBeam],
+      alpha: 0,
+      duration: 180,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        outerBeam.destroy();
+        coreBeam.destroy();
+      },
+    });
+    this.cameras.main.shake(90, 0.004 + chargeRatio * 0.004);
+
+    let hitCount = 0;
+    [...this.enemyBullets.getChildren()].forEach((bullet) => {
+      if (!bullet.active || bullet.y > this.player.y) return;
+      if (Math.abs(bullet.x - beamX) <= width * 0.62 + 16) {
+        bullet.destroy();
+        hitCount += 1;
+      }
+    });
+
+    [...this.enemies.getChildren()].forEach((enemy) => {
+      if (!enemy.active || enemy.y > this.player.y + 24) return;
+      const enemyPadding = enemy.isBoss ? 90 : 40;
+      if (Math.abs(enemy.x - beamX) > width / 2 + enemyPadding) return;
+
+      hitCount += 1;
+      enemy.hp -= damage;
+      enemy.setBlendMode(Phaser.BlendModes.ADD);
+      this.explosions.emitParticleAt(enemy.x, enemy.y, enemy.isBoss ? 22 : 10);
+      this.time.delayedCall(70, () => {
+        if (enemy.active) enemy.setBlendMode(Phaser.BlendModes.NORMAL);
+      });
+      if (enemy.hp <= 0) {
+        this.destroyEnemy(enemy);
+      }
+    });
+
+    const chargeLabel = chargeRatio >= 0.98 ? "满载" : `${Math.round(chargeRatio * 100)}%`;
+    this.updateHud(hitCount > 0 ? `${chargeLabel} 激光炮命中 ${hitCount} 个目标。` : `${chargeLabel} 激光炮已发射。`);
+  }
+
   cleanupScene() {
     this.clearWaveTimers();
     this.scale.off("resize", this.handleResize, this);
@@ -551,6 +697,7 @@ class StarwingScene extends Phaser.Scene {
 
   restartMission(autoStart = false) {
     this.autoStartAfterRestart = autoStart;
+    this.cancelLaserCharge();
     this.clearWaveTimers();
     this.time.paused = false;
     this.physics.world.resume();
@@ -570,6 +717,7 @@ class StarwingScene extends Phaser.Scene {
 
   pauseMission() {
     if (this.state !== GAME_STATE.PLAYING) return;
+    this.cancelLaserCharge();
     this.state = GAME_STATE.PAUSED;
     HUD.pauseButton.textContent = "▶";
     this.showOverlay("系统待命", "引擎保持热态，目标锁定未丢失。", "继续");
@@ -704,6 +852,7 @@ class StarwingScene extends Phaser.Scene {
     this.updateCombo(time);
     const isBoosted = this.weaponBoostUntil > time;
     this.weaponLevel = isBoosted ? 3 : 1;
+    this.updateLaserCharge(time);
     this.updateEnemies(time, delta);
     this.updateProjectiles();
     this.updatePowerUps(delta);
@@ -1004,6 +1153,7 @@ class StarwingScene extends Phaser.Scene {
 
   endMission(victory) {
     if (this.state === GAME_STATE.GAME_OVER || this.state === GAME_STATE.VICTORY) return;
+    this.cancelLaserCharge();
     this.clearWaveTimers();
     this.state = victory ? GAME_STATE.VICTORY : GAME_STATE.GAME_OVER;
     this.time.paused = false;
@@ -1042,6 +1192,19 @@ class StarwingScene extends Phaser.Scene {
     const boostRatio = clamp(boostRemaining / 8500, 0, 1);
     HUD.boostFill.style.width = `${Math.round(boostRatio * 100)}%`;
     HUD.boostLabel.textContent = boostRemaining > 0 ? `${(boostRemaining / 1000).toFixed(1)}s` : "待命";
+
+    const laserCooldownRemaining = Math.max(0, this.laserCooldownUntil - this.time.now);
+    if (this.laserCharging) {
+      HUD.laserFill.style.width = `${Math.round(this.laserChargeRatio * 100)}%`;
+      HUD.laserLabel.textContent = `${Math.round(this.laserChargeRatio * 100)}%`;
+    } else if (laserCooldownRemaining > 0) {
+      const cooldownProgress = 1 - laserCooldownRemaining / LASER_CONFIG.cooldownMs;
+      HUD.laserFill.style.width = `${Math.round(clamp(cooldownProgress, 0, 1) * 100)}%`;
+      HUD.laserLabel.textContent = `${(laserCooldownRemaining / 1000).toFixed(1)}s`;
+    } else {
+      HUD.laserFill.style.width = "100%";
+      HUD.laserLabel.textContent = "待命";
+    }
 
     if (this.boss?.active && this.boss.maxHp > 0) {
       const bossRatio = clamp(this.boss.hp / this.boss.maxHp, 0, 1);

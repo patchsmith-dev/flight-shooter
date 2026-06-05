@@ -10,7 +10,7 @@
     <title>星翼突击 | Flight Shooter</title>
     <link rel="stylesheet" href="./src/styles.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
-    <script defer src="./src/game.js?v=20260605-features"></script>
+    <script defer src="./src/game.js?v=20260605-laser-cannon"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -68,6 +68,15 @@
             </div>
             <div class="status-track">
               <span id="boostFill"></span>
+            </div>
+          </div>
+          <div class="status-row laser-row">
+            <div>
+              <span>激光</span>
+              <strong id="laserLabel">待命</strong>
+            </div>
+            <div class="status-track laser-track">
+              <span id="laserFill"></span>
             </div>
           </div>
           <div class="status-row boss-row" id="bossPanel" hidden>
