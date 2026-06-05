@@ -10,7 +10,7 @@
     <title>星翼突击 | Flight Shooter</title>
     <link rel="stylesheet" href="./src/styles.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
-    <script defer src="./src/game.js?v=20260605-powerup-fix"></script>
+    <script defer src="./src/game.js?v=20260605-features"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -39,8 +39,16 @@
             <strong id="scoreValue">0</strong>
           </div>
           <div class="stat-card">
+            <span>最高</span>
+            <strong id="bestValue">0</strong>
+          </div>
+          <div class="stat-card">
             <span>波次</span>
             <strong id="waveValue">1</strong>
+          </div>
+          <div class="stat-card">
+            <span>连击</span>
+            <strong id="comboValue">0</strong>
           </div>
           <div class="stat-card">
             <span>生命</span>
@@ -49,6 +57,27 @@
           <div class="stat-card">
             <span>护盾</span>
             <strong id="shieldValue">0</strong>
+          </div>
+        </div>
+
+        <div class="status-stack" aria-label="战机状态">
+          <div class="status-row">
+            <div>
+              <span>火力</span>
+              <strong id="boostLabel">待命</strong>
+            </div>
+            <div class="status-track">
+              <span id="boostFill"></span>
+            </div>
+          </div>
+          <div class="status-row boss-row" id="bossPanel" hidden>
+            <div>
+              <span>旗舰</span>
+              <strong id="bossLabel">0%</strong>
+            </div>
+            <div class="status-track boss-track">
+              <span id="bossFill"></span>
+            </div>
           </div>
         </div>
 

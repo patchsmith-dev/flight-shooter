@@ -188,7 +188,8 @@ button {
 
 .brand-lockup p,
 .stat-card span,
-.threat-meter span {
+.threat-meter span,
+.status-row span {
   margin: 0;
   color: var(--muted);
   font-size: 0.72rem;
@@ -225,6 +226,66 @@ button {
   overflow-wrap: anywhere;
   font-size: 2rem;
   line-height: 1;
+}
+
+#bestValue,
+#comboValue {
+  font-size: 1.45rem;
+}
+
+.status-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.status-row {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(174, 226, 255, 0.14);
+  border-radius: 8px;
+  padding: 13px 15px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+#bossPanel[hidden] {
+  display: none;
+}
+
+.status-row > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.status-row strong {
+  color: #dff7ff;
+  font-size: 0.92rem;
+}
+
+.status-track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.status-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  transition: width 180ms ease;
+}
+
+.boss-row {
+  border-color: rgba(255, 95, 120, 0.26);
+  background: rgba(255, 95, 120, 0.055);
+}
+
+.boss-track span {
+  background: linear-gradient(90deg, var(--red), var(--amber));
 }
 
 .threat-meter {
@@ -340,7 +401,7 @@ button {
   }
 
   .stat-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 7px;
   }
 

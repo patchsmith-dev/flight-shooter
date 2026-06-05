@@ -2,9 +2,16 @@
 
 const HUD = {
   score: document.getElementById("scoreValue"),
+  best: document.getElementById("bestValue"),
   wave: document.getElementById("waveValue"),
+  combo: document.getElementById("comboValue"),
   lives: document.getElementById("livesValue"),
   shield: document.getElementById("shieldValue"),
+  boostLabel: document.getElementById("boostLabel"),
+  boostFill: document.getElementById("boostFill"),
+  bossPanel: document.getElementById("bossPanel"),
+  bossLabel: document.getElementById("bossLabel"),
+  bossFill: document.getElementById("bossFill"),
   threatLabel: document.getElementById("threatLabel"),
   threatFill: document.getElementById("threatFill"),
   feed: document.getElementById("feedText"),
@@ -31,6 +38,29 @@ const READY_OVERLAY = {
   action: "启动",
 };
 
+const STORAGE_KEYS = {
+  highScore: "starwing.highScore",
+};
+
+const POWER_TYPES = {
+  weapon: {
+    tint: 0xffd166,
+    scale: 0.62,
+  },
+  shield: {
+    tint: 0x64f2a4,
+    scale: 0.68,
+  },
+  repair: {
+    tint: 0x38d7ff,
+    scale: 0.66,
+  },
+  pulse: {
+    tint: 0xb98cff,
+    scale: 0.7,
+  },
+};
+
 const ENEMY_TYPES = {
   scout: {
     key: "enemyScout",
@@ -54,17 +84,38 @@ const ENEMY_TYPES = {
 
 const clamp = Phaser.Math.Clamp;
 
+function readHighScore() {
+  try {
+    return Number.parseInt(window.localStorage.getItem(STORAGE_KEYS.highScore) || "0", 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveHighScore(score) {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.highScore, String(score));
+  } catch {
+    // Ignore storage failures; the current run still works without persistence.
+  }
+}
+
 class StarwingScene extends Phaser.Scene {
   constructor() {
     super("starwing");
     this.state = GAME_STATE.READY;
     this.score = 0;
+    this.bestScore = readHighScore();
     this.wave = 1;
     this.lives = 3;
+    this.maxLives = 5;
     this.shield = 0;
     this.weaponLevel = 1;
     this.weaponBoostUntil = 0;
     this.invulnerableUntil = 0;
+    this.combo = 0;
+    this.comboMultiplier = 1;
+    this.comboWindowUntil = 0;
     this.lastShotAt = 0;
     this.waveActive = false;
     this.pendingSpawns = 0;
@@ -414,12 +465,17 @@ class StarwingScene extends Phaser.Scene {
   resetGameState() {
     this.state = GAME_STATE.READY;
     this.score = 0;
+    this.bestScore = readHighScore();
     this.wave = 1;
     this.lives = 3;
+    this.maxLives = 5;
     this.shield = 0;
     this.weaponLevel = 1;
     this.weaponBoostUntil = 0;
     this.invulnerableUntil = 0;
+    this.combo = 0;
+    this.comboMultiplier = 1;
+    this.comboWindowUntil = 0;
     this.lastShotAt = 0;
     this.waveActive = false;
     this.pendingSpawns = 0;
@@ -435,6 +491,35 @@ class StarwingScene extends Phaser.Scene {
     this.tweens.resumeAll();
     HUD.pauseButton.textContent = "II";
     this.showOverlay(READY_OVERLAY.title, READY_OVERLAY.copy, READY_OVERLAY.action);
+  }
+
+  addScore(points) {
+    this.score += Math.max(0, Math.round(points));
+    if (this.score > this.bestScore) {
+      this.bestScore = this.score;
+      saveHighScore(this.bestScore);
+    }
+  }
+
+  awardEnemyScore(baseScore) {
+    this.combo += 1;
+    this.comboWindowUntil = this.time.now + 3200;
+    this.comboMultiplier = Math.min(5, 1 + Math.floor(Math.max(0, this.combo - 1) / 4) * 0.25);
+    const awarded = Math.round(baseScore * this.comboMultiplier);
+    this.addScore(awarded);
+    return awarded;
+  }
+
+  resetCombo() {
+    this.combo = 0;
+    this.comboMultiplier = 1;
+    this.comboWindowUntil = 0;
+  }
+
+  updateCombo(time) {
+    if (this.combo > 0 && time > this.comboWindowUntil) {
+      this.resetCombo();
+    }
   }
 
   cleanupScene() {
@@ -616,6 +701,7 @@ class StarwingScene extends Phaser.Scene {
       return;
     }
 
+    this.updateCombo(time);
     const isBoosted = this.weaponBoostUntil > time;
     this.weaponLevel = isBoosted ? 3 : 1;
     this.updateEnemies(time, delta);
@@ -623,6 +709,7 @@ class StarwingScene extends Phaser.Scene {
     this.updatePowerUps(delta);
     this.firePlayerWeapon(time);
     this.checkWaveClear();
+    this.updateHud();
   }
 
   updateStars(delta) {
@@ -756,30 +843,41 @@ class StarwingScene extends Phaser.Scene {
     this.destroyEnemy(enemy);
   }
 
-  destroyEnemy(enemy) {
+  destroyEnemy(enemy, options = {}) {
+    const allowDrop = options.allowDrop !== false;
     this.tweens.killTweensOf(enemy);
-    this.score += enemy.scoreValue || 100;
+    this.awardEnemyScore(enemy.scoreValue || 100);
     this.explosions.emitParticleAt(enemy.x, enemy.y, enemy.isBoss ? 66 : 24);
 
-    if (enemy.isBoss) {
+    if (allowDrop && enemy.isBoss) {
       this.dropPower(enemy.x, enemy.y, "shield");
       this.dropPower(enemy.x + 38, enemy.y + 12, "weapon");
+      this.dropPower(enemy.x - 38, enemy.y + 12, "repair");
       this.boss = null;
-    } else if (Phaser.Math.Between(1, 100) <= 16) {
-      this.dropPower(enemy.x, enemy.y, Phaser.Math.Between(0, 1) ? "weapon" : "shield");
+    } else if (allowDrop && Phaser.Math.Between(1, 100) <= 22) {
+      this.dropPower(enemy.x, enemy.y, this.pickPowerType());
     }
 
     enemy.destroy();
     this.updateHud(enemy.isBoss ? "旗舰击毁，轨道门仍在运转。" : "目标消失。");
   }
 
+  pickPowerType() {
+    const roll = Phaser.Math.Between(1, 100);
+    if (roll <= 34) return "weapon";
+    if (roll <= 66) return "shield";
+    if (roll <= 84) return "repair";
+    return "pulse";
+  }
+
   dropPower(x, y, type) {
+    const config = POWER_TYPES[type] || POWER_TYPES.shield;
     const power = this.powerUps.create(x, y, "powerCore");
     power.isPowerUp = true;
     power.powerType = type;
     power.collected = false;
-    power.setScale(type === "weapon" ? 0.62 : 0.68);
-    power.setTint(type === "weapon" ? 0xffd166 : 0x64f2a4);
+    power.setScale(config.scale);
+    power.setTint(config.tint);
     power.setVelocity(0, 118);
     power.setCircle(24, 8, 8);
   }
@@ -794,15 +892,45 @@ class StarwingScene extends Phaser.Scene {
     power.disableBody(true, true);
 
     if (power.powerType === "weapon") {
-      this.weaponBoostUntil = this.time.now + 8500;
+      this.weaponBoostUntil = Math.max(this.weaponBoostUntil, this.time.now + 8500);
       this.updateHud("武器核心同步，火力阵列展开。");
-    } else {
+    } else if (power.powerType === "shield") {
       this.shield = clamp(this.shield + 32, 0, 99);
       this.updateHud("护盾电容补足。");
+    } else if (power.powerType === "repair") {
+      if (this.lives < this.maxLives) {
+        this.lives += 1;
+        this.updateHud("维修单元接入，生命维持增强。");
+      } else {
+        this.shield = clamp(this.shield + 20, 0, 99);
+        this.updateHud("维修冗余转入护盾电容。");
+      }
+    } else if (power.powerType === "pulse") {
+      this.triggerPulse(powerX, powerY);
     }
-    this.score += 120;
+    this.addScore(120);
     this.explosions.emitParticleAt(powerX, powerY, 16);
     power.destroy();
+  }
+
+  triggerPulse(x, y) {
+    const clearedBullets = this.enemyBullets.countActive(true);
+    this.enemyBullets.clear(true, true);
+    this.explosions.emitParticleAt(x, y, 72);
+
+    [...this.enemies.getChildren()].forEach((enemy) => {
+      if (!enemy.active) return;
+      enemy.hp -= enemy.isBoss ? 14 : 4;
+      enemy.setBlendMode(Phaser.BlendModes.ADD);
+      this.time.delayedCall(80, () => {
+        if (enemy.active) enemy.setBlendMode(Phaser.BlendModes.NORMAL);
+      });
+      if (enemy.hp <= 0) {
+        this.destroyEnemy(enemy, { allowDrop: false });
+      }
+    });
+
+    this.updateHud(clearedBullets > 0 ? `脉冲释放，清除了 ${clearedBullets} 枚弹体。` : "脉冲释放，航道短暂净空。");
   }
 
   hitPlayer(firstObject, secondObject) {
@@ -826,6 +954,8 @@ class StarwingScene extends Phaser.Scene {
 
   damagePlayer(amount) {
     if (this.invulnerableUntil > this.time.now) return;
+
+    this.resetCombo();
 
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
@@ -884,7 +1014,9 @@ class StarwingScene extends Phaser.Scene {
     this.powerUps.clear(true, true);
     this.showOverlay(
       victory ? "轨道门安全" : "通讯中断",
-      victory ? `最终得分 ${this.score}，星港进入夜航模式。` : `最终得分 ${this.score}，救援信标已发出。`,
+      victory
+        ? `最终得分 ${this.score}，最高纪录 ${this.bestScore}。`
+        : `最终得分 ${this.score}，最高纪录 ${this.bestScore}。`,
       "再来一局"
     );
     this.updateHud(victory ? "任务完成。" : "任务失败。");
@@ -900,9 +1032,27 @@ class StarwingScene extends Phaser.Scene {
 
   updateHud(message) {
     HUD.score.textContent = String(this.score);
+    HUD.best.textContent = String(this.bestScore);
     HUD.wave.textContent = String(this.wave);
+    HUD.combo.textContent = this.combo > 0 ? `${this.combo}/${this.comboMultiplier.toFixed(2)}x` : "0";
     HUD.lives.textContent = String(Math.max(0, this.lives));
     HUD.shield.textContent = String(Math.round(this.shield));
+
+    const boostRemaining = Math.max(0, this.weaponBoostUntil - this.time.now);
+    const boostRatio = clamp(boostRemaining / 8500, 0, 1);
+    HUD.boostFill.style.width = `${Math.round(boostRatio * 100)}%`;
+    HUD.boostLabel.textContent = boostRemaining > 0 ? `${(boostRemaining / 1000).toFixed(1)}s` : "待命";
+
+    if (this.boss?.active && this.boss.maxHp > 0) {
+      const bossRatio = clamp(this.boss.hp / this.boss.maxHp, 0, 1);
+      HUD.bossPanel.hidden = false;
+      HUD.bossFill.style.width = `${Math.round(bossRatio * 100)}%`;
+      HUD.bossLabel.textContent = `${Math.ceil(bossRatio * 100)}%`;
+    } else {
+      HUD.bossPanel.hidden = true;
+      HUD.bossFill.style.width = "0%";
+      HUD.bossLabel.textContent = "0%";
+    }
 
     const threat = clamp((this.wave - 1) / 7, 0, 1);
     HUD.threatFill.style.width = `${Math.max(18, Math.round(threat * 100))}%`;
