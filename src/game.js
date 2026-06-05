@@ -9,6 +9,7 @@ const HUD = {
   shield: document.getElementById("shieldValue"),
   boostLabel: document.getElementById("boostLabel"),
   boostFill: document.getElementById("boostFill"),
+  laserRow: document.querySelector(".laser-row"),
   laserLabel: document.getElementById("laserLabel"),
   laserFill: document.getElementById("laserFill"),
   bossPanel: document.getElementById("bossPanel"),
@@ -52,6 +53,7 @@ const LASER_CONFIG = {
   maxBonusDamage: 18,
   minWidth: 18,
   maxWidth: 74,
+  meterWidth: 116,
 };
 
 const POWER_TYPES = {
@@ -130,6 +132,11 @@ class StarwingScene extends Phaser.Scene {
     this.laserChargeRatio = 0;
     this.laserCooldownUntil = 0;
     this.laserButton = null;
+    this.laserChargeBack = null;
+    this.laserChargeFill = null;
+    this.laserChargeCore = null;
+    this.laserChargeHalo = null;
+    this.laserChargeText = null;
     this.combo = 0;
     this.comboMultiplier = 1;
     this.comboWindowUntil = 0;
@@ -421,6 +428,36 @@ class StarwingScene extends Phaser.Scene {
 
     this.playerAura = this.add.circle(this.player.x, this.player.y, 46, 0x38d7ff, 0.1);
     this.playerAura.setDepth(2);
+    this.createLaserChargeFeedback();
+  }
+
+  createLaserChargeFeedback() {
+    this.laserChargeHalo = this.add.circle(this.player.x, this.player.y, 46, 0xb98cff, 0.08);
+    this.laserChargeHalo.setStrokeStyle(2, 0x38d7ff, 0.36);
+    this.laserChargeHalo.setDepth(2.5);
+
+    this.laserChargeBack = this.add.rectangle(0, 0, LASER_CONFIG.meterWidth, 12, 0x06090d, 0.84);
+    this.laserChargeBack.setStrokeStyle(1, 0xb98cff, 0.72);
+    this.laserChargeBack.setDepth(8);
+
+    this.laserChargeFill = this.add.rectangle(0, 0, LASER_CONFIG.meterWidth - 8, 7, 0xb98cff, 0.92);
+    this.laserChargeFill.setOrigin(0, 0.5);
+    this.laserChargeFill.setDepth(9);
+
+    this.laserChargeCore = this.add.rectangle(0, 0, LASER_CONFIG.meterWidth - 8, 2, 0xffffff, 0.86);
+    this.laserChargeCore.setOrigin(0, 0.5);
+    this.laserChargeCore.setDepth(10);
+
+    this.laserChargeText = this.add.text(0, 0, "0%", {
+      color: "#f7ffff",
+      fontFamily: "Inter, Microsoft YaHei, sans-serif",
+      fontSize: "12px",
+      fontStyle: "700",
+    });
+    this.laserChargeText.setOrigin(0.5);
+    this.laserChargeText.setDepth(11);
+
+    this.setLaserChargeFeedbackVisible(false);
   }
 
   createInput() {
@@ -579,6 +616,7 @@ class StarwingScene extends Phaser.Scene {
     this.laserChargeStartedAt = this.time.now;
     this.laserChargeRatio = 0;
     this.laserButton = this.getPointerButton(pointer);
+    this.updateLaserChargeFeedback();
     this.updateHud("激光炮开始蓄力。");
   }
 
@@ -606,11 +644,53 @@ class StarwingScene extends Phaser.Scene {
     this.laserChargeStartedAt = 0;
     this.laserChargeRatio = 0;
     this.laserButton = null;
+    this.setLaserChargeFeedbackVisible(false);
   }
 
   updateLaserCharge(time) {
     if (!this.laserCharging) return;
     this.laserChargeRatio = clamp((time - this.laserChargeStartedAt) / LASER_CONFIG.fullChargeMs, 0, 1);
+    this.updateLaserChargeFeedback();
+  }
+
+  setLaserChargeFeedbackVisible(visible) {
+    [
+      this.laserChargeBack,
+      this.laserChargeFill,
+      this.laserChargeCore,
+      this.laserChargeHalo,
+      this.laserChargeText,
+    ].forEach((part) => {
+      if (part) part.setVisible(visible);
+    });
+  }
+
+  updateLaserChargeFeedback() {
+    if (!this.player?.active || !this.laserCharging) {
+      this.setLaserChargeFeedbackVisible(false);
+      return;
+    }
+
+    const ratio = clamp(this.laserChargeRatio, 0, 1);
+    const meterWidth = LASER_CONFIG.meterWidth;
+    const meterX = this.player.x;
+    const meterY = Math.max(28, this.player.y - 68);
+    const fillX = meterX - meterWidth / 2 + 4;
+    const fillScale = Math.max(0.02, ratio);
+    const pulse = 0.5 + Math.sin(this.time.now / 72) * 0.5;
+
+    this.setLaserChargeFeedbackVisible(true);
+    this.laserChargeBack.setPosition(meterX, meterY);
+    this.laserChargeFill.setPosition(fillX, meterY);
+    this.laserChargeFill.setScale(fillScale, 1);
+    this.laserChargeFill.setFillStyle(ratio >= 0.98 ? 0xffffff : ratio >= 0.65 ? 0x38d7ff : 0xb98cff, 0.92);
+    this.laserChargeCore.setPosition(fillX, meterY);
+    this.laserChargeCore.setScale(fillScale, 1);
+    this.laserChargeHalo.setPosition(this.player.x, this.player.y);
+    this.laserChargeHalo.setScale(0.9 + ratio * 0.42 + pulse * 0.06);
+    this.laserChargeHalo.setAlpha(0.12 + ratio * 0.2 + pulse * 0.08);
+    this.laserChargeText.setPosition(meterX, meterY - 16);
+    this.laserChargeText.setText(`${Math.round(ratio * 100)}%`);
   }
 
   fireLaser(chargeRatio) {
@@ -1194,6 +1274,8 @@ class StarwingScene extends Phaser.Scene {
     HUD.boostLabel.textContent = boostRemaining > 0 ? `${(boostRemaining / 1000).toFixed(1)}s` : "待命";
 
     const laserCooldownRemaining = Math.max(0, this.laserCooldownUntil - this.time.now);
+    HUD.laserRow?.classList.toggle("is-charging", this.laserCharging);
+    HUD.laserRow?.classList.toggle("is-cooling", !this.laserCharging && laserCooldownRemaining > 0);
     if (this.laserCharging) {
       HUD.laserFill.style.width = `${Math.round(this.laserChargeRatio * 100)}%`;
       HUD.laserLabel.textContent = `${Math.round(this.laserChargeRatio * 100)}%`;
