@@ -4,14 +4,25 @@ const HUD = {
   score: document.getElementById("scoreValue"),
   best: document.getElementById("bestValue"),
   wave: document.getElementById("waveValue"),
+  levelWave: document.getElementById("levelWaveValue"),
   combo: document.getElementById("comboValue"),
   lives: document.getElementById("livesValue"),
   shield: document.getElementById("shieldValue"),
+  bombs: document.getElementById("bombValue"),
+  kills: document.getElementById("killsValue"),
+  profile: document.getElementById("profileValue"),
+  supplyLabel: document.getElementById("supplyLabel"),
+  supplyFill: document.getElementById("supplyFill"),
   boostLabel: document.getElementById("boostLabel"),
   boostFill: document.getElementById("boostFill"),
   laserRow: document.querySelector(".laser-row"),
   laserLabel: document.getElementById("laserLabel"),
   laserFill: document.getElementById("laserFill"),
+  dashRow: document.querySelector(".dash-row"),
+  dashLabel: document.getElementById("dashLabel"),
+  dashFill: document.getElementById("dashFill"),
+  droneLabel: document.getElementById("droneLabel"),
+  droneFill: document.getElementById("droneFill"),
   bossPanel: document.getElementById("bossPanel"),
   bossLabel: document.getElementById("bossLabel"),
   bossFill: document.getElementById("bossFill"),
@@ -23,8 +34,12 @@ const HUD = {
   overlayCopy: document.getElementById("overlayCopy"),
   primaryAction: document.getElementById("primaryAction"),
   pauseButton: document.getElementById("pauseButton"),
+  bombButton: document.getElementById("bombButton"),
+  dashButton: document.getElementById("dashButton"),
+  audioButton: document.getElementById("audioButton"),
   restartButton: document.getElementById("restartButton"),
   fullscreenButton: document.getElementById("fullscreenButton"),
+  difficultyOptions: document.getElementById("difficultyOptions"),
 };
 
 const GAME_STATE = {
@@ -43,6 +58,35 @@ const READY_OVERLAY = {
 
 const STORAGE_KEYS = {
   highScore: "starwing.highScore",
+  difficulty: "starwing.difficulty",
+  profile: "starwing.profile",
+};
+
+const DIFFICULTY_MODES = {
+  normal: {
+    label: "普通",
+    enemyCountBonus: 0,
+    hpMultiplier: 1,
+    speedMultiplier: 1,
+    fireRateMultiplier: 1,
+    scoreMultiplier: 1,
+  },
+  veteran: {
+    label: "老兵",
+    enemyCountBonus: 3,
+    hpMultiplier: 1.22,
+    speedMultiplier: 1.12,
+    fireRateMultiplier: 0.88,
+    scoreMultiplier: 1.25,
+  },
+  nightmare: {
+    label: "噩梦",
+    enemyCountBonus: 6,
+    hpMultiplier: 1.48,
+    speedMultiplier: 1.24,
+    fireRateMultiplier: 0.74,
+    scoreMultiplier: 1.6,
+  },
 };
 
 const LASER_CONFIG = {
@@ -54,6 +98,47 @@ const LASER_CONFIG = {
   minWidth: 18,
   maxWidth: 74,
   meterWidth: 116,
+};
+
+const DASH_CONFIG = {
+  activeMs: 620,
+  cooldownMs: 4200,
+  speedMultiplier: 1.72,
+  bulletClearRadius: 148,
+};
+
+const RUN_PERMANENT = Number.POSITIVE_INFINITY;
+
+const POWER_LIMITS = {
+  weaponMaxLevel: 5,
+  droneMaxLevel: 4,
+  maxLives: 7,
+  shieldMax: 150,
+};
+
+const SUPPLY_CONFIG = {
+  killsPerDrop: 8,
+};
+
+const LEVEL_CONFIG = {
+  maxLevel: 10,
+  wavesPerLevel: 10,
+  bossWave: 10,
+};
+
+const POWER_MAGNET_CONFIG = {
+  radius: 190,
+  minSpeed: 150,
+  maxSpeed: 440,
+};
+
+const POWER_LABELS = {
+  weapon: "火力",
+  shield: "护盾",
+  repair: "维修",
+  pulse: "脉冲",
+  drone: "僚机",
+  bomb: "炸弹",
 };
 
 const POWER_TYPES = {
@@ -72,6 +157,14 @@ const POWER_TYPES = {
   pulse: {
     tint: 0xb98cff,
     scale: 0.7,
+  },
+  drone: {
+    tint: 0xffffff,
+    scale: 0.6,
+  },
+  bomb: {
+    tint: 0xff5f78,
+    scale: 0.72,
   },
 };
 
@@ -94,9 +187,269 @@ const ENEMY_TYPES = {
     scale: 0.76,
     tint: 0xffe8a3,
   },
+  interceptor: {
+    key: "enemyInterceptor",
+    hp: 3,
+    speed: 118,
+    score: 150,
+    fireRate: 1850,
+    scale: 0.66,
+    tint: 0x9ef7ff,
+  },
 };
 
 const clamp = Phaser.Math.Clamp;
+
+class StarwingAudio {
+  constructor() {
+    this.context = null;
+    this.master = null;
+    this.musicGain = null;
+    this.sfxGain = null;
+    this.musicTimer = null;
+    this.step = 0;
+    this.enabled = true;
+    this.started = false;
+    this.lastShotAt = 0;
+    this.chargeOscillators = [];
+    this.chargeGain = null;
+  }
+
+  ensureContext() {
+    if (this.context) return this.context;
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+
+    this.context = new AudioContextClass();
+    this.master = this.context.createGain();
+    this.musicGain = this.context.createGain();
+    this.sfxGain = this.context.createGain();
+    this.master.gain.value = this.enabled ? 0.72 : 0;
+    this.musicGain.gain.value = 0.18;
+    this.sfxGain.gain.value = 0.72;
+    this.musicGain.connect(this.master);
+    this.sfxGain.connect(this.master);
+    this.master.connect(this.context.destination);
+    return this.context;
+  }
+
+  async unlock() {
+    const context = this.ensureContext();
+    if (!context) return false;
+    if (context.state === "suspended") {
+      await context.resume();
+    }
+    if (!this.started) {
+      this.started = true;
+      this.startMusic();
+    }
+    return true;
+  }
+
+  setEnabled(enabled) {
+    this.enabled = enabled;
+    const context = this.ensureContext();
+    if (!context || !this.master) return;
+    this.master.gain.cancelScheduledValues(context.currentTime);
+    this.master.gain.setTargetAtTime(enabled ? 0.72 : 0, context.currentTime, 0.025);
+    if (!enabled) this.stopCharge();
+  }
+
+  toggle() {
+    this.setEnabled(!this.enabled);
+    return this.enabled;
+  }
+
+  startMusic() {
+    if (this.musicTimer || !this.context) return;
+    this.musicTimer = window.setInterval(() => this.playMusicStep(), 185);
+  }
+
+  stopMusic() {
+    if (!this.musicTimer) return;
+    window.clearInterval(this.musicTimer);
+    this.musicTimer = null;
+  }
+
+  playMusicStep() {
+    if (!this.enabled || !this.context || this.context.state !== "running") return;
+
+    const bass = [55, 55, 82.41, 73.42, 65.41, 65.41, 98, 82.41];
+    const arp = [220, 277.18, 329.63, 415.3, 329.63, 277.18, 246.94, 196];
+    const time = this.context.currentTime;
+    const index = this.step % bass.length;
+
+    if (index % 2 === 0) {
+      this.tone(bass[index], 0.22, "sawtooth", 0.045, this.musicGain, time, 700);
+      this.noise(0.025, 0.045, this.musicGain, time, 900);
+    }
+
+    this.tone(arp[index], 0.08, "triangle", 0.025, this.musicGain, time + 0.018, 1800);
+    this.step += 1;
+  }
+
+  tone(frequency, duration, type = "sine", volume = 0.2, destination = this.sfxGain, when = this.context?.currentTime || 0, filterFrequency = 2400) {
+    if (!this.enabled || !this.context || !destination) return null;
+
+    const oscillator = this.context.createOscillator();
+    const gain = this.context.createGain();
+    const filter = this.context.createBiquadFilter();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, when);
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(filterFrequency, when);
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), when + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+    oscillator.connect(filter);
+    filter.connect(gain);
+    gain.connect(destination);
+    oscillator.start(when);
+    oscillator.stop(when + duration + 0.03);
+    return oscillator;
+  }
+
+  sweep(fromFrequency, toFrequency, duration, type = "sawtooth", volume = 0.25) {
+    if (!this.enabled || !this.context) return;
+
+    const time = this.context.currentTime;
+    const oscillator = this.context.createOscillator();
+    const gain = this.context.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(fromFrequency, time);
+    oscillator.frequency.exponentialRampToValueAtTime(toFrequency, time + duration);
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.exponentialRampToValueAtTime(volume, time + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+    oscillator.connect(gain);
+    gain.connect(this.sfxGain);
+    oscillator.start(time);
+    oscillator.stop(time + duration + 0.03);
+  }
+
+  noise(duration, volume = 0.2, destination = this.sfxGain, when = this.context?.currentTime || 0, filterFrequency = 1600) {
+    if (!this.enabled || !this.context || !destination) return;
+
+    const sampleRate = this.context.sampleRate;
+    const buffer = this.context.createBuffer(1, Math.max(1, Math.floor(sampleRate * duration)), sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let index = 0; index < data.length; index += 1) {
+      data[index] = Math.random() * 2 - 1;
+    }
+
+    const source = this.context.createBufferSource();
+    const gain = this.context.createGain();
+    const filter = this.context.createBiquadFilter();
+    source.buffer = buffer;
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(filterFrequency, when);
+    filter.Q.value = 0.8;
+    gain.gain.setValueAtTime(volume, when);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(destination);
+    source.start(when);
+  }
+
+  playShot() {
+    if (!this.context || this.context.currentTime - this.lastShotAt < 0.045) return;
+    this.lastShotAt = this.context.currentTime;
+    this.sweep(740, 1180, 0.055, "square", 0.08);
+  }
+
+  playDroneShot() {
+    this.sweep(520, 880, 0.05, "triangle", 0.055);
+  }
+
+  playEnemyShot() {
+    this.sweep(290, 140, 0.09, "sawtooth", 0.07);
+  }
+
+  startCharge() {
+    if (!this.enabled || !this.context || this.chargeGain) return;
+
+    const time = this.context.currentTime;
+    this.chargeGain = this.context.createGain();
+    this.chargeGain.gain.setValueAtTime(0.0001, time);
+    this.chargeGain.gain.exponentialRampToValueAtTime(0.12, time + 0.18);
+    this.chargeGain.connect(this.sfxGain);
+    this.chargeOscillators = [110, 220].map((frequency, index) => {
+      const oscillator = this.context.createOscillator();
+      oscillator.type = index === 0 ? "sawtooth" : "triangle";
+      oscillator.frequency.setValueAtTime(frequency, time);
+      oscillator.frequency.exponentialRampToValueAtTime(frequency * 2.6, time + 1.8);
+      oscillator.connect(this.chargeGain);
+      oscillator.start(time);
+      return oscillator;
+    });
+  }
+
+  stopCharge() {
+    if (!this.context || !this.chargeGain) return;
+
+    const time = this.context.currentTime;
+    this.chargeGain.gain.cancelScheduledValues(time);
+    this.chargeGain.gain.setTargetAtTime(0.0001, time, 0.035);
+    this.chargeOscillators.forEach((oscillator) => {
+      try {
+        oscillator.stop(time + 0.12);
+      } catch {
+        // Oscillators can already be stopped if the browser suspends audio.
+      }
+    });
+    this.chargeOscillators = [];
+    this.chargeGain = null;
+  }
+
+  playLaser(chargeRatio) {
+    this.stopCharge();
+    this.sweep(360 + chargeRatio * 220, 80, 0.24, "sawtooth", 0.24 + chargeRatio * 0.08);
+    this.noise(0.18, 0.13 + chargeRatio * 0.06, this.sfxGain, this.context.currentTime, 2100);
+  }
+
+  playExplosion(isBoss = false) {
+    this.sweep(isBoss ? 140 : 190, isBoss ? 38 : 62, isBoss ? 0.42 : 0.22, "sawtooth", isBoss ? 0.34 : 0.18);
+    this.noise(isBoss ? 0.38 : 0.18, isBoss ? 0.32 : 0.18, this.sfxGain, this.context.currentTime, isBoss ? 760 : 1200);
+  }
+
+  playPower() {
+    const time = this.context?.currentTime || 0;
+    this.tone(523.25, 0.08, "triangle", 0.12, this.sfxGain, time, 2400);
+    this.tone(783.99, 0.12, "triangle", 0.1, this.sfxGain, time + 0.055, 2600);
+  }
+
+  playHit() {
+    this.sweep(210, 86, 0.16, "square", 0.18);
+    this.noise(0.12, 0.16, this.sfxGain, this.context.currentTime, 650);
+  }
+
+  playBomb() {
+    this.sweep(95, 32, 0.52, "sawtooth", 0.38);
+    this.noise(0.45, 0.34, this.sfxGain, this.context.currentTime, 520);
+  }
+
+  playDash() {
+    this.sweep(420, 1180, 0.14, "triangle", 0.16);
+    this.noise(0.1, 0.08, this.sfxGain, this.context.currentTime, 2600);
+  }
+
+  playMissionEnd(victory) {
+    const time = this.context?.currentTime || 0;
+    if (victory) {
+      [392, 523.25, 659.25, 783.99].forEach((frequency, index) => {
+        this.tone(frequency, 0.18, "triangle", 0.11, this.sfxGain, time + index * 0.12, 2800);
+      });
+    } else {
+      [220, 174.61, 130.81].forEach((frequency, index) => {
+        this.tone(frequency, 0.2, "sawtooth", 0.12, this.sfxGain, time + index * 0.13, 1200);
+      });
+    }
+  }
+}
+
+const AUDIO = new StarwingAudio();
 
 function readHighScore() {
   try {
@@ -114,18 +467,78 @@ function saveHighScore(score) {
   }
 }
 
+function readDifficulty() {
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEYS.difficulty);
+    return DIFFICULTY_MODES[stored] ? stored : "normal";
+  } catch {
+    return "normal";
+  }
+}
+
+function saveDifficulty(difficulty) {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.difficulty, difficulty);
+  } catch {
+    // Difficulty still applies for this run even if persistence is unavailable.
+  }
+}
+
+const GRADE_RANK = {
+  D: 0,
+  C: 1,
+  B: 2,
+  A: 3,
+  S: 4,
+};
+
+function readProfile() {
+  const fallback = {
+    bestGrade: "D",
+    bestLevel: 0,
+    bestKills: 0,
+    bestCombo: 0,
+  };
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEYS.profile) || "null");
+    return parsed && typeof parsed === "object" ? { ...fallback, ...parsed } : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveProfile(profile) {
+  try {
+    window.localStorage.setItem(STORAGE_KEYS.profile, JSON.stringify(profile));
+  } catch {
+    // Profile stats are nice-to-have; gameplay continues without persistence.
+  }
+}
+
 class StarwingScene extends Phaser.Scene {
   constructor() {
     super("starwing");
     this.state = GAME_STATE.READY;
     this.score = 0;
     this.bestScore = readHighScore();
+    this.profile = readProfile();
+    this.difficulty = readDifficulty();
     this.wave = 1;
+    this.levelWave = 1;
     this.lives = 3;
     this.maxLives = 5;
     this.shield = 0;
+    this.maxShield = 99;
+    this.bombs = 1;
+    this.maxBombs = 3;
     this.weaponLevel = 1;
+    this.weaponUpgradeLevel = 0;
     this.weaponBoostUntil = 0;
+    this.dashActiveUntil = 0;
+    this.dashCooldownUntil = 0;
+    this.droneUntil = 0;
+    this.droneLevel = 0;
+    this.drones = [];
     this.invulnerableUntil = 0;
     this.laserCharging = false;
     this.laserChargeStartedAt = 0;
@@ -140,7 +553,12 @@ class StarwingScene extends Phaser.Scene {
     this.combo = 0;
     this.comboMultiplier = 1;
     this.comboWindowUntil = 0;
+    this.maxCombo = 0;
+    this.killCount = 0;
+    this.supplyCharge = 0;
     this.lastShotAt = 0;
+    this.lastDroneShotAt = 0;
+    this.lastDashTrailAt = 0;
     this.waveActive = false;
     this.pendingSpawns = 0;
     this.spawnTimers = [];
@@ -282,6 +700,48 @@ class StarwingScene extends Phaser.Scene {
       g.lineTo(44, 58);
       g.closePath();
       g.fillPath();
+    });
+
+    makeTexture("enemyInterceptor", 96, 96, (g) => {
+      g.lineStyle(2, 0xdffbff, 1);
+      g.fillStyle(0x38d7ff, 1);
+      g.beginPath();
+      g.moveTo(48, 86);
+      g.lineTo(68, 49);
+      g.lineTo(88, 22);
+      g.lineTo(56, 34);
+      g.lineTo(48, 8);
+      g.lineTo(40, 34);
+      g.lineTo(8, 22);
+      g.lineTo(28, 49);
+      g.closePath();
+      g.fillPath();
+      g.strokePath();
+      g.fillStyle(0x071018, 0.76);
+      g.beginPath();
+      g.moveTo(38, 45);
+      g.lineTo(48, 25);
+      g.lineTo(58, 45);
+      g.lineTo(53, 60);
+      g.lineTo(43, 60);
+      g.closePath();
+      g.fillPath();
+      g.fillStyle(0xff5f78, 1);
+      g.fillCircle(28, 52, 5);
+      g.fillCircle(68, 52, 5);
+    });
+
+    makeTexture("drone", 54, 54, (g) => {
+      g.lineStyle(2, 0xf7ffff, 1);
+      g.fillStyle(0x64f2a4, 1);
+      g.fillTriangle(27, 4, 47, 42, 27, 32);
+      g.fillTriangle(27, 4, 7, 42, 27, 32);
+      g.strokeTriangle(27, 4, 47, 42, 27, 32);
+      g.strokeTriangle(27, 4, 7, 42, 27, 32);
+      g.fillStyle(0x071018, 0.7);
+      g.fillCircle(27, 25, 8);
+      g.fillStyle(0x38d7ff, 1);
+      g.fillCircle(27, 25, 4);
     });
 
     makeTexture("boss", 180, 160, (g) => {
@@ -428,6 +888,25 @@ class StarwingScene extends Phaser.Scene {
 
     this.playerAura = this.add.circle(this.player.x, this.player.y, 46, 0x38d7ff, 0.1);
     this.playerAura.setDepth(2);
+    const droneSlots = [
+      { side: -1, offsetX: -54, offsetY: 28 },
+      { side: 1, offsetX: 54, offsetY: 28 },
+      { side: -1, offsetX: -88, offsetY: 58 },
+      { side: 1, offsetX: 88, offsetY: 58 },
+    ];
+    this.drones = droneSlots.map((slot, index) => {
+      const drone = this.physics.add.image(this.player.x + slot.offsetX, this.player.y + slot.offsetY, "drone");
+      drone.side = slot.side;
+      drone.slotIndex = index;
+      drone.offsetX = slot.offsetX;
+      drone.offsetY = slot.offsetY;
+      drone.setScale(0.58);
+      drone.setDepth(2.8);
+      drone.setAlpha(0);
+      drone.setActive(false);
+      drone.setVisible(false);
+      return drone;
+    });
     this.createLaserChargeFeedback();
   }
 
@@ -522,8 +1001,32 @@ class StarwingScene extends Phaser.Scene {
 
     HUD.primaryAction.addEventListener("click", () => this.startMission(), options);
     HUD.pauseButton.addEventListener("click", () => this.togglePause(), options);
+    HUD.bombButton.addEventListener("click", () => this.useBomb(), options);
+    HUD.dashButton.addEventListener("click", () => this.useDash(), options);
+    HUD.audioButton.addEventListener("click", () => this.toggleAudio(), options);
     HUD.restartButton.addEventListener("click", () => this.restartMission(true), options);
     HUD.fullscreenButton.addEventListener("click", () => this.toggleFullscreen(), options);
+    HUD.difficultyOptions?.querySelectorAll("button[data-difficulty]").forEach((button) => {
+      button.addEventListener("click", () => this.setDifficulty(button.dataset.difficulty), options);
+    });
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.code !== "KeyB" || event.repeat) return;
+        this.useBomb();
+      },
+      options
+    );
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.code !== "ShiftLeft" && event.code !== "ShiftRight") return;
+        if (event.repeat) return;
+        event.preventDefault();
+        this.useDash();
+      },
+      options
+    );
     document.getElementById("game-root")?.addEventListener("contextmenu", (event) => event.preventDefault(), options);
     document.querySelector(".stage-wrap")?.addEventListener("contextmenu", (event) => event.preventDefault(), options);
   }
@@ -532,12 +1035,23 @@ class StarwingScene extends Phaser.Scene {
     this.state = GAME_STATE.READY;
     this.score = 0;
     this.bestScore = readHighScore();
+    this.profile = readProfile();
+    this.difficulty = this.difficulty || readDifficulty();
     this.wave = 1;
+    this.levelWave = 1;
     this.lives = 3;
     this.maxLives = 5;
     this.shield = 0;
+    this.maxShield = 99;
+    this.bombs = 1;
+    this.maxBombs = 3;
     this.weaponLevel = 1;
+    this.weaponUpgradeLevel = 0;
     this.weaponBoostUntil = 0;
+    this.dashActiveUntil = 0;
+    this.dashCooldownUntil = 0;
+    this.droneUntil = 0;
+    this.droneLevel = 0;
     this.invulnerableUntil = 0;
     this.laserCharging = false;
     this.laserChargeStartedAt = 0;
@@ -547,13 +1061,19 @@ class StarwingScene extends Phaser.Scene {
     this.combo = 0;
     this.comboMultiplier = 1;
     this.comboWindowUntil = 0;
+    this.maxCombo = 0;
+    this.killCount = 0;
+    this.supplyCharge = 0;
     this.lastShotAt = 0;
+    this.lastDroneShotAt = 0;
+    this.lastDashTrailAt = 0;
     this.waveActive = false;
     this.pendingSpawns = 0;
     this.spawnTimers = [];
     this.nextWaveTimer = null;
     this.pointerTarget = null;
     this.boss = null;
+    this.updateDifficultyUi();
   }
 
   resetRuntimeState() {
@@ -574,11 +1094,23 @@ class StarwingScene extends Phaser.Scene {
 
   awardEnemyScore(baseScore) {
     this.combo += 1;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.comboWindowUntil = this.time.now + 3200;
     this.comboMultiplier = Math.min(5, 1 + Math.floor(Math.max(0, this.combo - 1) / 4) * 0.25);
-    const awarded = Math.round(baseScore * this.comboMultiplier);
+    const awarded = Math.round(baseScore * this.comboMultiplier * this.getDifficultyConfig().scoreMultiplier);
     this.addScore(awarded);
     return awarded;
+  }
+
+  recordKill(enemy, allowSupplyDrop) {
+    this.killCount += 1;
+    if (!allowSupplyDrop || enemy?.isBoss) return false;
+
+    this.supplyCharge = Math.min(SUPPLY_CONFIG.killsPerDrop, this.supplyCharge + 1);
+    if (this.supplyCharge < SUPPLY_CONFIG.killsPerDrop) return false;
+
+    this.supplyCharge = 0;
+    return true;
   }
 
   resetCombo() {
@@ -617,6 +1149,7 @@ class StarwingScene extends Phaser.Scene {
     this.laserChargeRatio = 0;
     this.laserButton = this.getPointerButton(pointer);
     this.updateLaserChargeFeedback();
+    AUDIO.startCharge();
     this.updateHud("激光炮开始蓄力。");
   }
 
@@ -631,6 +1164,7 @@ class StarwingScene extends Phaser.Scene {
     this.cancelLaserCharge();
 
     if (chargeMs < LASER_CONFIG.minChargeMs) {
+      AUDIO.stopCharge();
       this.updateHud("激光炮蓄力不足。");
       return;
     }
@@ -645,6 +1179,7 @@ class StarwingScene extends Phaser.Scene {
     this.laserChargeRatio = 0;
     this.laserButton = null;
     this.setLaserChargeFeedbackVisible(false);
+    AUDIO.stopCharge();
   }
 
   updateLaserCharge(time) {
@@ -695,6 +1230,7 @@ class StarwingScene extends Phaser.Scene {
 
   fireLaser(chargeRatio) {
     if (!this.player?.active) return;
+    AUDIO.playLaser(chargeRatio);
 
     const width = Phaser.Math.Linear(LASER_CONFIG.minWidth, LASER_CONFIG.maxWidth, chargeRatio);
     const damage = Math.round(LASER_CONFIG.baseDamage + LASER_CONFIG.maxBonusDamage * chargeRatio);
@@ -766,6 +1302,7 @@ class StarwingScene extends Phaser.Scene {
       return;
     }
 
+    AUDIO.unlock();
     this.state = GAME_STATE.PLAYING;
     this.time.paused = false;
     this.physics.world.resume();
@@ -798,6 +1335,7 @@ class StarwingScene extends Phaser.Scene {
   pauseMission() {
     if (this.state !== GAME_STATE.PLAYING) return;
     this.cancelLaserCharge();
+    AUDIO.stopCharge();
     this.state = GAME_STATE.PAUSED;
     HUD.pauseButton.textContent = "▶";
     this.showOverlay("系统待命", "引擎保持热态，目标锁定未丢失。", "继续");
@@ -809,6 +1347,7 @@ class StarwingScene extends Phaser.Scene {
 
   resumeMission() {
     if (this.state !== GAME_STATE.PAUSED) return;
+    AUDIO.unlock();
     this.state = GAME_STATE.PLAYING;
     this.time.paused = false;
     this.physics.world.resume();
@@ -824,6 +1363,43 @@ class StarwingScene extends Phaser.Scene {
       return;
     }
     this.scale.startFullscreen();
+  }
+
+  toggleAudio() {
+    AUDIO.unlock();
+    const enabled = AUDIO.toggle();
+    HUD.audioButton.textContent = enabled ? "♪" : "×";
+    HUD.audioButton.classList.toggle("is-muted", !enabled);
+    HUD.audioButton.setAttribute("aria-label", enabled ? "声音开关" : "声音已关闭");
+    HUD.audioButton.setAttribute("title", enabled ? "声音开关" : "声音已关闭");
+    this.updateHud(enabled ? "音频系统上线。" : "音频系统静默。");
+  }
+
+  getDifficultyConfig() {
+    return DIFFICULTY_MODES[this.difficulty] || DIFFICULTY_MODES.normal;
+  }
+
+  setDifficulty(difficulty) {
+    if (!DIFFICULTY_MODES[difficulty]) return;
+    this.difficulty = difficulty;
+    saveDifficulty(difficulty);
+    this.updateDifficultyUi();
+    const config = this.getDifficultyConfig();
+    const suffix = this.state === GAME_STATE.PLAYING ? "后续刷敌立即采用。" : "本局将采用。";
+    this.updateHud(`难度切换为${config.label}，${suffix}`);
+  }
+
+  updateDifficultyUi() {
+    const activeDifficulty = this.difficulty || "normal";
+    HUD.difficultyOptions?.querySelectorAll("button[data-difficulty]").forEach((button) => {
+      const isActive = button.dataset.difficulty === activeDifficulty;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
+  }
+
+  getProgressIndex() {
+    return (this.wave - 1) * LEVEL_CONFIG.wavesPerLevel + this.levelWave;
   }
 
   showOverlay(title, copy, action) {
@@ -843,57 +1419,68 @@ class StarwingScene extends Phaser.Scene {
 
     this.clearWaveTimers();
     this.waveActive = true;
-    const isBossWave = this.wave % 4 === 0;
+    const progressIndex = this.getProgressIndex();
+    const isBossWave = this.levelWave === LEVEL_CONFIG.bossWave;
     if (isBossWave) {
       this.pendingSpawns = 0;
       this.spawnBoss();
-      this.updateHud(`第 ${this.wave} 波，旗舰进入火控范围。`);
+      this.updateHud(`第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关第 ${this.levelWave}/${LEVEL_CONFIG.wavesPerLevel} 波，Boss 进入火控范围。`);
       return;
     }
 
-    const enemyCount = Math.min(22, 7 + this.wave * 2);
+    const difficulty = this.getDifficultyConfig();
+    const enemyCount = Math.min(38, 5 + this.wave + this.levelWave + Math.floor(progressIndex / 7) + difficulty.enemyCountBonus);
     this.pendingSpawns = enemyCount;
     for (let index = 0; index < enemyCount; index += 1) {
       const timer = this.time.delayedCall(index * 220, () => {
         this.spawnTimers = this.spawnTimers.filter((spawnTimer) => spawnTimer !== timer);
         this.pendingSpawns = Math.max(0, this.pendingSpawns - 1);
         if (this.state !== GAME_STATE.PLAYING) return;
-        const type = index % 5 === 4 || (this.wave > 5 && index % 4 === 2) ? "heavy" : "scout";
+        const type =
+          progressIndex >= 12 && (index % 6 === 3 || (progressIndex >= 42 && index % 7 === 5))
+            ? "interceptor"
+            : index % 5 === 4 || (progressIndex >= 25 && index % 4 === 2)
+              ? "heavy"
+              : "scout";
         this.spawnEnemy(type, index);
       });
       this.spawnTimers.push(timer);
     }
 
-    this.updateHud(`第 ${this.wave} 波接敌。`);
+    this.updateHud(`第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关第 ${this.levelWave}/${LEVEL_CONFIG.wavesPerLevel} 波接敌。`);
   }
 
   spawnEnemy(typeName, index) {
     const type = ENEMY_TYPES[typeName];
+    const difficulty = this.getDifficultyConfig();
+    const progressIndex = this.getProgressIndex();
     const xStep = this.bounds.width / 7;
     const spawnX = xStep + (index % 6) * xStep + Phaser.Math.Between(-22, 22);
     const enemy = this.enemies.create(spawnX, -52, type.key);
     enemy.isEnemy = true;
     enemy.enemyType = typeName;
-    enemy.hp = type.hp + Math.floor(this.wave / 3);
+    enemy.hp = Math.ceil((type.hp + Math.floor(progressIndex / 8)) * difficulty.hpMultiplier);
     enemy.scoreValue = type.score;
-    enemy.fireRate = Math.max(820, type.fireRate - this.wave * 72);
+    enemy.fireRate = Math.max(360, (type.fireRate - progressIndex * 12) * difficulty.fireRateMultiplier);
     enemy.nextShotAt = this.time.now + Phaser.Math.Between(600, 1800);
     enemy.drift = Phaser.Math.FloatBetween(0.6, 1.65);
     enemy.phase = Phaser.Math.FloatBetween(0, Math.PI * 2);
     enemy.setScale(type.scale);
     enemy.setTint(type.tint);
-    enemy.setVelocityY(type.speed + this.wave * 8);
+    enemy.setVelocityY((type.speed + progressIndex * (typeName === "interceptor" ? 1.8 : 1.25)) * difficulty.speedMultiplier);
     enemy.setCircle(36, 10, 10);
   }
 
   spawnBoss() {
+    const difficulty = this.getDifficultyConfig();
+    const progressIndex = this.getProgressIndex();
     const boss = this.enemies.create(this.bounds.width / 2, -126, "boss");
     boss.isEnemy = true;
     boss.isBoss = true;
-    boss.hp = 58 + this.wave * 14;
+    boss.hp = Math.ceil((82 + this.wave * 24 + progressIndex * 2.2) * difficulty.hpMultiplier);
     boss.maxHp = boss.hp;
-    boss.scoreValue = 2600 + this.wave * 180;
-    boss.fireRate = Math.max(520, 1050 - this.wave * 52);
+    boss.scoreValue = 2800 + this.wave * 260;
+    boss.fireRate = Math.max(300, (1120 - progressIndex * 7) * difficulty.fireRateMultiplier);
     boss.nextShotAt = this.time.now + 900;
     boss.setScale(0.95);
     boss.setVelocity(0, 42);
@@ -930,13 +1517,15 @@ class StarwingScene extends Phaser.Scene {
     }
 
     this.updateCombo(time);
-    const isBoosted = this.weaponBoostUntil > time;
-    this.weaponLevel = isBoosted ? 3 : 1;
+    this.weaponLevel = 1 + this.weaponUpgradeLevel;
     this.updateLaserCharge(time);
+    this.updateDashEffects(time);
+    this.updateDrones(time, delta);
     this.updateEnemies(time, delta);
     this.updateProjectiles();
     this.updatePowerUps(delta);
     this.firePlayerWeapon(time);
+    this.fireDroneWeapons(time);
     this.checkWaveClear();
     this.updateHud();
   }
@@ -955,7 +1544,8 @@ class StarwingScene extends Phaser.Scene {
   updatePlayer(delta) {
     if (!this.player) return;
 
-    const speed = 330;
+    const isDashing = this.dashActiveUntil > this.time.now;
+    const speed = isDashing ? 330 * DASH_CONFIG.speedMultiplier : 330;
     let vx = 0;
     let vy = 0;
 
@@ -978,8 +1568,91 @@ class StarwingScene extends Phaser.Scene {
     this.player.y = clamp(this.player.y, this.bounds.height * 0.42, this.bounds.height - 42);
     this.playerAura.setPosition(this.player.x, this.player.y);
     this.player.setAlpha(this.invulnerableUntil > this.time.now ? 0.58 + Math.sin(this.time.now / 58) * 0.22 : 1);
-    this.playerAura.setAlpha(this.shield > 0 ? 0.25 + Math.sin(this.time.now / 120) * 0.08 : 0.08);
-    this.playerAura.setRadius(this.shield > 0 ? 52 : 42);
+    this.playerAura.setAlpha(
+      isDashing ? 0.38 + Math.sin(this.time.now / 42) * 0.1 : this.shield > 0 ? 0.25 + Math.sin(this.time.now / 120) * 0.08 : 0.08
+    );
+    this.playerAura.setRadius(isDashing ? 66 : this.shield > 0 ? 52 : 42);
+  }
+
+  useDash() {
+    if (this.state !== GAME_STATE.PLAYING || !this.player?.active) return;
+
+    const cooldownRemaining = Math.max(0, this.dashCooldownUntil - this.time.now);
+    if (cooldownRemaining > 0) {
+      this.updateHud(`相位冲刺冷却中，还需 ${(cooldownRemaining / 1000).toFixed(1)} 秒。`);
+      return;
+    }
+
+    this.cancelLaserCharge();
+    AUDIO.playDash();
+    this.dashActiveUntil = this.time.now + DASH_CONFIG.activeMs;
+    this.dashCooldownUntil = this.time.now + DASH_CONFIG.cooldownMs;
+    this.invulnerableUntil = Math.max(this.invulnerableUntil, this.dashActiveUntil + 160);
+
+    let clearedBullets = 0;
+    [...this.enemyBullets.getChildren()].forEach((bullet) => {
+      if (!bullet.active) return;
+      const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, bullet.x, bullet.y);
+      if (distance <= DASH_CONFIG.bulletClearRadius) {
+        bullet.destroy();
+        clearedBullets += 1;
+      }
+    });
+
+    const ring = this.add.circle(this.player.x, this.player.y, 24, 0x64f2a4, 0.1);
+    ring.setStrokeStyle(2, 0x38d7ff, 0.76);
+    ring.setDepth(6);
+    this.tweens.add({
+      targets: ring,
+      radius: DASH_CONFIG.bulletClearRadius,
+      alpha: 0,
+      duration: 260,
+      ease: "Quad.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+
+    this.cameras.main.shake(70, 0.003);
+    this.addScore(clearedBullets * 12);
+    this.updateHud(clearedBullets > 0 ? `相位冲刺启动，清除近身弹体 ${clearedBullets} 枚。` : "相位冲刺启动。");
+  }
+
+  updateDashEffects(time) {
+    if (this.dashActiveUntil <= time || !this.player?.active) return;
+    if (time - this.lastDashTrailAt < 58) return;
+
+    this.lastDashTrailAt = time;
+    const afterimage = this.add.image(this.player.x, this.player.y, "player");
+    afterimage.setScale(this.player.scaleX);
+    afterimage.setAlpha(0.26);
+    afterimage.setTint(0x64f2a4);
+    afterimage.setDepth(1.8);
+    this.tweens.add({
+      targets: afterimage,
+      alpha: 0,
+      scaleX: this.player.scaleX * 1.08,
+      scaleY: this.player.scaleY * 1.08,
+      duration: 220,
+      ease: "Quad.easeOut",
+      onComplete: () => afterimage.destroy(),
+    });
+  }
+
+  updateDrones(time, delta) {
+    if (!this.player?.active || !this.drones?.length) return;
+
+    const active = this.droneUntil > time && this.droneLevel > 0;
+    const blend = Math.min(1, delta / 140);
+    this.drones.forEach((drone) => {
+      const droneActive = active && drone.slotIndex < this.droneLevel;
+      const targetX = this.player.x + drone.offsetX;
+      const targetY = this.player.y + drone.offsetY + Math.sin(time / 180 + drone.side + drone.slotIndex) * 7;
+      drone.setActive(droneActive);
+      drone.setVisible(droneActive);
+      drone.setAlpha(droneActive ? 0.86 : 0);
+      drone.x = Phaser.Math.Linear(drone.x, clamp(targetX, 30, this.bounds.width - 30), blend);
+      drone.y = Phaser.Math.Linear(drone.y, clamp(targetY, this.bounds.height * 0.42, this.bounds.height - 30), blend);
+      drone.rotation = Math.sin(time / 220 + drone.side + drone.slotIndex) * 0.12;
+    });
   }
 
   updateEnemies(time, delta) {
@@ -987,7 +1660,12 @@ class StarwingScene extends Phaser.Scene {
     this.enemies.getChildren().forEach((enemy) => {
       if (!enemy.active) return;
       if (!enemy.isBoss) {
-        enemy.x += Math.sin(time / 520 + enemy.phase) * enemy.drift * 42 * dt;
+        if (enemy.enemyType === "interceptor" && this.player?.active) {
+          const lead = clamp(this.player.x - enemy.x, -95, 95);
+          enemy.x += lead * dt * 0.72 + Math.sin(time / 360 + enemy.phase) * 24 * dt;
+        } else {
+          enemy.x += Math.sin(time / 520 + enemy.phase) * enemy.drift * 42 * dt;
+        }
         if (enemy.y > this.bounds.height + 92) {
           enemy.destroy();
           return;
@@ -1018,30 +1696,123 @@ class StarwingScene extends Phaser.Scene {
     const dt = delta / 1000;
     this.powerUps.getChildren().forEach((power) => {
       power.rotation += dt * 2.4;
-      if (power.y > this.bounds.height + 40) power.destroy();
+      if (this.player?.active) {
+        const distance = Phaser.Math.Distance.Between(power.x, power.y, this.player.x, this.player.y);
+        if (distance <= POWER_MAGNET_CONFIG.radius) {
+          const angle = Phaser.Math.Angle.Between(power.x, power.y, this.player.x, this.player.y);
+          const pull = 1 - clamp(distance / POWER_MAGNET_CONFIG.radius, 0, 1);
+          const speed = Phaser.Math.Linear(POWER_MAGNET_CONFIG.minSpeed, POWER_MAGNET_CONFIG.maxSpeed, pull);
+          power.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+        } else {
+          power.setVelocity(0, 118);
+        }
+      }
+
+      if (power.label) {
+        power.label.setPosition(power.x, power.y + 34);
+        power.label.setAlpha(power.y > 10 ? 0.82 : 0);
+      }
+
+      if (power.y > this.bounds.height + 48) this.destroyPower(power);
     });
   }
 
   firePlayerWeapon(time) {
-    const interval = this.weaponLevel > 1 ? 112 : 168;
+    const interval = Math.max(82, 168 - this.weaponUpgradeLevel * 18);
     if (time - this.lastShotAt < interval) return;
     this.lastShotAt = time;
+    AUDIO.playShot();
 
-    const shots = this.weaponLevel > 1 ? [-13, 0, 13] : [0];
+    const shotPatterns = {
+      1: [0],
+      2: [-14, 14],
+      3: [-18, 0, 18],
+      4: [-24, -8, 8, 24],
+      5: [-30, -18, -6, 6, 18, 30],
+    };
+    const shots = shotPatterns[Math.min(this.weaponLevel, POWER_LIMITS.weaponMaxLevel)] || shotPatterns[1];
     shots.forEach((offset, index) => {
       const bullet = this.playerBullets.getFirstDead(false) || this.playerBullets.create(0, 0, "playerShot");
       if (!bullet) return;
       bullet.isPlayerShot = true;
       bullet.enableBody(true, this.player.x + offset, this.player.y - 34, true, true);
-      bullet.setScale(index === 1 || shots.length === 1 ? 0.72 : 0.62);
-      bullet.setVelocity(offset * 5, -580);
+      const centerIndex = (shots.length - 1) / 2;
+      bullet.setScale(Math.abs(index - centerIndex) < 0.6 ? 0.74 : 0.58);
+      bullet.setVelocity(offset * 4.6, -580 - this.weaponUpgradeLevel * 18);
       bullet.setCircle(12, 10, 10);
-      bullet.damage = shots.length > 1 ? 1.2 : 1;
+      bullet.damage = 1 + this.weaponUpgradeLevel * 0.18;
+      bullet.clearTint();
       bullet.setDepth(2);
     });
   }
 
+  fireDroneWeapons(time) {
+    const interval = Math.max(150, 290 - this.droneLevel * 28);
+    if (this.droneUntil <= time || this.droneLevel <= 0 || time - this.lastDroneShotAt < interval) return;
+    this.lastDroneShotAt = time;
+    AUDIO.playDroneShot();
+
+    this.drones.forEach((drone) => {
+      if (!drone.active) return;
+      const bullet = this.playerBullets.getFirstDead(false) || this.playerBullets.create(0, 0, "playerShot");
+      if (!bullet) return;
+      bullet.isPlayerShot = true;
+      bullet.enableBody(true, drone.x, drone.y - 22, true, true);
+      bullet.setScale(0.5);
+      bullet.setVelocity(drone.side * 22, -520);
+      bullet.setCircle(12, 10, 10);
+      bullet.damage = 0.55 + this.droneLevel * 0.08;
+      bullet.setTint(0x64f2a4);
+      bullet.setDepth(2);
+    });
+  }
+
+  useBomb() {
+    if (this.state !== GAME_STATE.PLAYING) return;
+    if (this.bombs <= 0) {
+      this.updateHud("脉冲炸弹库存为空。");
+      return;
+    }
+
+    this.bombs -= 1;
+    this.cancelLaserCharge();
+    AUDIO.playBomb();
+    const wave = this.add.circle(this.player.x, this.player.y, 32, 0x38d7ff, 0.16);
+    wave.setStrokeStyle(3, 0xf7ffff, 0.78);
+    wave.setDepth(6);
+    this.tweens.add({
+      targets: wave,
+      radius: Math.max(this.bounds.width, this.bounds.height),
+      alpha: 0,
+      duration: 420,
+      ease: "Quad.easeOut",
+      onComplete: () => wave.destroy(),
+    });
+
+    const clearedBullets = this.enemyBullets.countActive(true);
+    this.enemyBullets.clear(true, true);
+    let hitCount = 0;
+    [...this.enemies.getChildren()].forEach((enemy) => {
+      if (!enemy.active) return;
+      hitCount += 1;
+      enemy.hp -= enemy.isBoss ? 24 : 8;
+      enemy.setBlendMode(Phaser.BlendModes.ADD);
+      this.explosions.emitParticleAt(enemy.x, enemy.y, enemy.isBoss ? 34 : 18);
+      this.time.delayedCall(90, () => {
+        if (enemy.active) enemy.setBlendMode(Phaser.BlendModes.NORMAL);
+      });
+      if (enemy.hp <= 0) {
+        this.destroyEnemy(enemy, { allowDrop: false });
+      }
+    });
+
+    this.cameras.main.shake(180, 0.008);
+    this.addScore(clearedBullets * 18);
+    this.updateHud(`脉冲炸弹释放，压制 ${hitCount} 个目标并清除 ${clearedBullets} 枚弹体。`);
+  }
+
   fireEnemyWeapon(enemy) {
+    AUDIO.playEnemyShot();
     const shotCount = enemy.isBoss ? 5 : 1;
     const spread = enemy.isBoss ? [-210, -105, 0, 105, 210] : [0];
     for (let i = 0; i < shotCount; i += 1) {
@@ -1050,7 +1821,16 @@ class StarwingScene extends Phaser.Scene {
       bullet.isEnemyShot = true;
       bullet.enableBody(true, enemy.x, enemy.y + 38, true, true);
       bullet.setScale(enemy.isBoss ? 0.74 : 0.58);
-      bullet.setVelocity(spread[i], enemy.isBoss ? 240 : 260 + this.wave * 12);
+      if (enemy.enemyType === "interceptor" && this.player?.active) {
+        const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y);
+        const speed = 235 + this.wave * 10;
+        bullet.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+        bullet.rotation = angle + Math.PI / 2;
+        bullet.setTint(0x9ef7ff);
+      } else {
+        bullet.setVelocity(spread[i], enemy.isBoss ? 240 : 260 + this.wave * 12);
+        bullet.clearTint();
+      }
       bullet.setCircle(12, 10, 10);
       bullet.setDepth(2);
     }
@@ -1075,28 +1855,39 @@ class StarwingScene extends Phaser.Scene {
   destroyEnemy(enemy, options = {}) {
     const allowDrop = options.allowDrop !== false;
     this.tweens.killTweensOf(enemy);
+    AUDIO.playExplosion(enemy.isBoss);
     this.awardEnemyScore(enemy.scoreValue || 100);
+    const guaranteedSupply = this.recordKill(enemy, allowDrop);
     this.explosions.emitParticleAt(enemy.x, enemy.y, enemy.isBoss ? 66 : 24);
 
     if (allowDrop && enemy.isBoss) {
       this.dropPower(enemy.x, enemy.y, "shield");
       this.dropPower(enemy.x + 38, enemy.y + 12, "weapon");
       this.dropPower(enemy.x - 38, enemy.y + 12, "repair");
+      this.dropPower(enemy.x, enemy.y - 28, "drone");
       this.boss = null;
-    } else if (allowDrop && Phaser.Math.Between(1, 100) <= 22) {
+    } else if (allowDrop) {
       this.dropPower(enemy.x, enemy.y, this.pickPowerType());
+      if (guaranteedSupply) {
+        this.dropPower(enemy.x + 28, enemy.y + 10, this.pickPowerType());
+        this.updateHud("目标掉落补给，额外战斗补给已投放。");
+      }
     }
 
     enemy.destroy();
-    this.updateHud(enemy.isBoss ? "旗舰击毁，轨道门仍在运转。" : "目标消失。");
+    if (!guaranteedSupply) {
+      this.updateHud(enemy.isBoss ? "旗舰击毁，轨道门仍在运转。" : "目标消失。");
+    }
   }
 
   pickPowerType() {
     const roll = Phaser.Math.Between(1, 100);
-    if (roll <= 34) return "weapon";
-    if (roll <= 66) return "shield";
-    if (roll <= 84) return "repair";
-    return "pulse";
+    if (roll <= 28) return "weapon";
+    if (roll <= 54) return "shield";
+    if (roll <= 70) return "repair";
+    if (roll <= 84) return "pulse";
+    if (roll <= 94) return "drone";
+    return "bomb";
   }
 
   dropPower(x, y, type) {
@@ -1109,6 +1900,24 @@ class StarwingScene extends Phaser.Scene {
     power.setTint(config.tint);
     power.setVelocity(0, 118);
     power.setCircle(24, 8, 8);
+    power.label = this.add.text(x, y + 34, POWER_LABELS[type] || "补给", {
+      color: "#f7ffff",
+      fontFamily: "Inter, Microsoft YaHei, sans-serif",
+      fontSize: "12px",
+      fontStyle: "800",
+      backgroundColor: "rgba(6, 9, 13, 0.58)",
+      padding: {
+        x: 5,
+        y: 2,
+      },
+    });
+    power.label.setOrigin(0.5);
+    power.label.setDepth(4);
+  }
+
+  destroyPower(power) {
+    power?.label?.destroy();
+    power?.destroy();
   }
 
   collectPower(firstObject, secondObject) {
@@ -1116,30 +1925,61 @@ class StarwingScene extends Phaser.Scene {
     if (!power || !power.active || power.collected) return;
 
     power.collected = true;
+    AUDIO.playPower();
     const powerX = power.x;
     const powerY = power.y;
     power.disableBody(true, true);
 
     if (power.powerType === "weapon") {
-      this.weaponBoostUntil = Math.max(this.weaponBoostUntil, this.time.now + 8500);
-      this.updateHud("武器核心同步，火力阵列展开。");
+      this.weaponBoostUntil = RUN_PERMANENT;
+      if (this.weaponUpgradeLevel < POWER_LIMITS.weaponMaxLevel - 1) {
+        this.weaponUpgradeLevel += 1;
+        this.weaponLevel = 1 + this.weaponUpgradeLevel;
+        this.updateHud(`武器核心同步，火力阵列提升至 Lv.${this.weaponLevel}/${POWER_LIMITS.weaponMaxLevel}。`);
+      } else {
+        this.weaponLevel = POWER_LIMITS.weaponMaxLevel;
+        this.addScore(280);
+        this.updateHud("火力阵列已达上限，冗余能量转入得分。");
+      }
     } else if (power.powerType === "shield") {
-      this.shield = clamp(this.shield + 32, 0, 99);
-      this.updateHud("护盾电容补足。");
+      if (this.shield >= this.maxShield && this.maxShield < POWER_LIMITS.shieldMax) {
+        this.maxShield = Math.min(POWER_LIMITS.shieldMax, this.maxShield + 17);
+        this.shield = this.maxShield;
+        this.updateHud(`护盾电容扩容至 ${this.maxShield}/${POWER_LIMITS.shieldMax}。`);
+      } else {
+        this.shield = clamp(this.shield + 32, 0, this.maxShield);
+        this.updateHud("护盾电容补足。");
+      }
     } else if (power.powerType === "repair") {
       if (this.lives < this.maxLives) {
         this.lives += 1;
         this.updateHud("维修单元接入，生命维持增强。");
+      } else if (this.maxLives < POWER_LIMITS.maxLives) {
+        this.maxLives += 1;
+        this.lives = this.maxLives;
+        this.updateHud(`装甲上限提升至 ${this.maxLives}/${POWER_LIMITS.maxLives}。`);
       } else {
-        this.shield = clamp(this.shield + 20, 0, 99);
+        this.shield = clamp(this.shield + 24, 0, this.maxShield);
         this.updateHud("维修冗余转入护盾电容。");
       }
     } else if (power.powerType === "pulse") {
       this.triggerPulse(powerX, powerY);
+    } else if (power.powerType === "drone") {
+      this.droneUntil = RUN_PERMANENT;
+      if (this.droneLevel < POWER_LIMITS.droneMaxLevel) {
+        this.droneLevel += 1;
+        this.updateHud(`无人僚机编队扩展至 Lv.${this.droneLevel}/${POWER_LIMITS.droneMaxLevel}。`);
+      } else {
+        this.addScore(280);
+        this.updateHud("无人僚机编队已达上限，冗余模块转入得分。");
+      }
+    } else if (power.powerType === "bomb") {
+      this.bombs = clamp(this.bombs + 1, 0, this.maxBombs);
+      this.updateHud("脉冲炸弹补给入舱。");
     }
     this.addScore(120);
     this.explosions.emitParticleAt(powerX, powerY, 16);
-    power.destroy();
+    this.destroyPower(power);
   }
 
   triggerPulse(x, y) {
@@ -1185,6 +2025,7 @@ class StarwingScene extends Phaser.Scene {
     if (this.invulnerableUntil > this.time.now) return;
 
     this.resetCombo();
+    AUDIO.playHit();
 
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
@@ -1218,13 +2059,21 @@ class StarwingScene extends Phaser.Scene {
     if (!this.waveActive || this.pendingSpawns > 0 || this.enemies.countActive(true) > 0) return;
 
     this.waveActive = false;
-    if (this.wave >= 8) {
+    if (this.wave >= LEVEL_CONFIG.maxLevel && this.levelWave >= LEVEL_CONFIG.wavesPerLevel) {
       this.endMission(true);
       return;
     }
 
-    this.wave += 1;
-    this.updateHud(`航道暂时清空，准备第 ${this.wave} 波。`);
+    if (this.levelWave >= LEVEL_CONFIG.wavesPerLevel) {
+      this.wave += 1;
+      this.levelWave = 1;
+      this.addScore(700 + this.wave * 90);
+      this.updateHud(`第 ${this.wave - 1} 关完成，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关。`);
+    } else {
+      this.levelWave += 1;
+      this.addScore(120 + this.levelWave * 18 + this.wave * 35);
+      this.updateHud(`航道暂时清空，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关第 ${this.levelWave}/${LEVEL_CONFIG.wavesPerLevel} 波。`);
+    }
     this.nextWaveTimer = this.time.delayedCall(1150, () => {
       this.nextWaveTimer = null;
       this.spawnWave();
@@ -1234,22 +2083,52 @@ class StarwingScene extends Phaser.Scene {
   endMission(victory) {
     if (this.state === GAME_STATE.GAME_OVER || this.state === GAME_STATE.VICTORY) return;
     this.cancelLaserCharge();
+    AUDIO.playMissionEnd(victory);
     this.clearWaveTimers();
     this.state = victory ? GAME_STATE.VICTORY : GAME_STATE.GAME_OVER;
+    const grade = this.getRunGrade();
+    const profileUpdated = this.updateProfile(grade);
     this.time.paused = false;
     this.physics.world.pause();
     this.tweens.pauseAll();
     this.enemyBullets.clear(true, true);
     this.playerBullets.clear(true, true);
-    this.powerUps.clear(true, true);
+    [...this.powerUps.getChildren()].forEach((power) => this.destroyPower(power));
     this.showOverlay(
       victory ? "轨道门安全" : "通讯中断",
       victory
-        ? `最终得分 ${this.score}，最高纪录 ${this.bestScore}。`
-        : `最终得分 ${this.score}，最高纪录 ${this.bestScore}。`,
+        ? `评级 ${grade}，${this.getDifficultyConfig().label}难度，最终得分 ${this.score}，击坠 ${this.killCount}，最高连击 ${this.maxCombo}。${profileUpdated ? " 档案已刷新。" : ""}`
+        : `评级 ${grade}，${this.getDifficultyConfig().label}难度，最终得分 ${this.score}，击坠 ${this.killCount}，最高连击 ${this.maxCombo}。${profileUpdated ? " 档案已刷新。" : ""}`,
       "再来一局"
     );
     this.updateHud(victory ? "任务完成。" : "任务失败。");
+  }
+
+  getRunGrade() {
+    const score = this.score + this.killCount * 45 + this.maxCombo * 90 + (this.lives > 0 ? this.lives * 260 : 0);
+    if (score >= 18000 || (this.wave >= LEVEL_CONFIG.maxLevel && this.levelWave >= LEVEL_CONFIG.wavesPerLevel && this.maxCombo >= 28)) return "S";
+    if (score >= 12500 || this.maxCombo >= 22) return "A";
+    if (score >= 8200 || this.maxCombo >= 15) return "B";
+    if (score >= 4200 || this.killCount >= 24) return "C";
+    return "D";
+  }
+
+  updateProfile(grade) {
+    const nextProfile = {
+      bestGrade:
+        (GRADE_RANK[grade] || 0) > (GRADE_RANK[this.profile.bestGrade] || 0) ? grade : this.profile.bestGrade,
+      bestLevel: Math.max(this.profile.bestLevel || 0, this.wave),
+      bestKills: Math.max(this.profile.bestKills || 0, this.killCount),
+      bestCombo: Math.max(this.profile.bestCombo || 0, this.maxCombo),
+    };
+    const changed =
+      nextProfile.bestGrade !== this.profile.bestGrade ||
+      nextProfile.bestLevel !== this.profile.bestLevel ||
+      nextProfile.bestKills !== this.profile.bestKills ||
+      nextProfile.bestCombo !== this.profile.bestCombo;
+    this.profile = nextProfile;
+    if (changed) saveProfile(nextProfile);
+    return changed;
   }
 
   clearWaveTimers() {
@@ -1263,15 +2142,26 @@ class StarwingScene extends Phaser.Scene {
   updateHud(message) {
     HUD.score.textContent = String(this.score);
     HUD.best.textContent = String(this.bestScore);
-    HUD.wave.textContent = String(this.wave);
+    HUD.wave.textContent = `${this.wave}/${LEVEL_CONFIG.maxLevel}`;
+    HUD.levelWave.textContent = `${this.levelWave}/${LEVEL_CONFIG.wavesPerLevel}`;
     HUD.combo.textContent = this.combo > 0 ? `${this.combo}/${this.comboMultiplier.toFixed(2)}x` : "0";
-    HUD.lives.textContent = String(Math.max(0, this.lives));
-    HUD.shield.textContent = String(Math.round(this.shield));
+    HUD.lives.textContent = `${Math.max(0, this.lives)}/${this.maxLives}`;
+    HUD.shield.textContent = `${Math.round(this.shield)}/${this.maxShield}`;
+    HUD.bombs.textContent = String(Math.max(0, this.bombs));
+    HUD.kills.textContent = String(this.killCount);
+    HUD.profile.textContent = `${this.profile.bestGrade}/${this.profile.bestLevel}`;
+    HUD.supplyFill.style.width = `${Math.round(clamp(this.supplyCharge / SUPPLY_CONFIG.killsPerDrop, 0, 1) * 100)}%`;
+    HUD.supplyLabel.textContent = `${this.supplyCharge}/${SUPPLY_CONFIG.killsPerDrop}`;
 
-    const boostRemaining = Math.max(0, this.weaponBoostUntil - this.time.now);
-    const boostRatio = clamp(boostRemaining / 8500, 0, 1);
+    const boostPermanent = this.weaponBoostUntil === RUN_PERMANENT;
+    const boostRemaining = boostPermanent ? RUN_PERMANENT : Math.max(0, this.weaponBoostUntil - this.time.now);
+    const boostRatio = boostPermanent ? this.weaponLevel / POWER_LIMITS.weaponMaxLevel : clamp(boostRemaining / 8500, 0, 1);
     HUD.boostFill.style.width = `${Math.round(boostRatio * 100)}%`;
-    HUD.boostLabel.textContent = boostRemaining > 0 ? `${(boostRemaining / 1000).toFixed(1)}s` : "待命";
+    HUD.boostLabel.textContent = boostPermanent
+      ? `Lv.${this.weaponLevel}/${POWER_LIMITS.weaponMaxLevel}`
+      : boostRemaining > 0
+        ? `${(boostRemaining / 1000).toFixed(1)}s`
+        : "待命";
 
     const laserCooldownRemaining = Math.max(0, this.laserCooldownUntil - this.time.now);
     HUD.laserRow?.classList.toggle("is-charging", this.laserCharging);
@@ -1288,6 +2178,32 @@ class StarwingScene extends Phaser.Scene {
       HUD.laserLabel.textContent = "待命";
     }
 
+    const dashActiveRemaining = Math.max(0, this.dashActiveUntil - this.time.now);
+    const dashCooldownRemaining = Math.max(0, this.dashCooldownUntil - this.time.now);
+    HUD.dashRow?.classList.toggle("is-active", dashActiveRemaining > 0);
+    HUD.dashRow?.classList.toggle("is-cooling", dashActiveRemaining <= 0 && dashCooldownRemaining > 0);
+    if (dashActiveRemaining > 0) {
+      HUD.dashFill.style.width = `${Math.round(clamp(dashActiveRemaining / DASH_CONFIG.activeMs, 0, 1) * 100)}%`;
+      HUD.dashLabel.textContent = "相位";
+    } else if (dashCooldownRemaining > 0) {
+      const dashProgress = 1 - dashCooldownRemaining / DASH_CONFIG.cooldownMs;
+      HUD.dashFill.style.width = `${Math.round(clamp(dashProgress, 0, 1) * 100)}%`;
+      HUD.dashLabel.textContent = `${(dashCooldownRemaining / 1000).toFixed(1)}s`;
+    } else {
+      HUD.dashFill.style.width = "100%";
+      HUD.dashLabel.textContent = "待命";
+    }
+
+    const dronePermanent = this.droneUntil === RUN_PERMANENT;
+    const droneRemaining = dronePermanent ? RUN_PERMANENT : Math.max(0, this.droneUntil - this.time.now);
+    const droneRatio = dronePermanent ? this.droneLevel / POWER_LIMITS.droneMaxLevel : clamp(droneRemaining / 12000, 0, 1);
+    HUD.droneFill.style.width = `${Math.round(droneRatio * 100)}%`;
+    HUD.droneLabel.textContent = dronePermanent
+      ? `Lv.${this.droneLevel}/${POWER_LIMITS.droneMaxLevel}`
+      : droneRemaining > 0
+        ? `${(droneRemaining / 1000).toFixed(1)}s`
+        : "待命";
+
     if (this.boss?.active && this.boss.maxHp > 0) {
       const bossRatio = clamp(this.boss.hp / this.boss.maxHp, 0, 1);
       HUD.bossPanel.hidden = false;
@@ -1299,7 +2215,9 @@ class StarwingScene extends Phaser.Scene {
       HUD.bossLabel.textContent = "0%";
     }
 
-    const threat = clamp((this.wave - 1) / 7, 0, 1);
+    const difficultyThreat = this.difficulty === "nightmare" ? 0.22 : this.difficulty === "veteran" ? 0.12 : 0;
+    const totalWaves = LEVEL_CONFIG.maxLevel * LEVEL_CONFIG.wavesPerLevel;
+    const threat = clamp((this.getProgressIndex() - 1) / Math.max(1, totalWaves - 1) + difficultyThreat, 0, 1);
     HUD.threatFill.style.width = `${Math.max(18, Math.round(threat * 100))}%`;
     HUD.threatLabel.textContent = threat > 0.72 ? "高" : threat > 0.38 ? "中" : "低";
 

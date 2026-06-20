@@ -10,7 +10,7 @@
     <title>星翼突击 | Flight Shooter</title>
     <link rel="stylesheet" href="./src/styles.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
-    <script defer src="./src/game.js?v=20260605-laser-meter"></script>
+    <script defer src="./src/game.js?v=20260616-level-waves"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -43,8 +43,12 @@
             <strong id="bestValue">0</strong>
           </div>
           <div class="stat-card">
-            <span>波次</span>
+            <span>关卡</span>
             <strong id="waveValue">1</strong>
+          </div>
+          <div class="stat-card">
+            <span>波次</span>
+            <strong id="levelWaveValue">1/10</strong>
           </div>
           <div class="stat-card">
             <span>连击</span>
@@ -58,9 +62,30 @@
             <span>护盾</span>
             <strong id="shieldValue">0</strong>
           </div>
+          <div class="stat-card">
+            <span>炸弹</span>
+            <strong id="bombValue">1</strong>
+          </div>
+          <div class="stat-card">
+            <span>击坠</span>
+            <strong id="killsValue">0</strong>
+          </div>
+          <div class="stat-card">
+            <span>档案</span>
+            <strong id="profileValue">D/0</strong>
+          </div>
         </div>
 
         <div class="status-stack" aria-label="战机状态">
+          <div class="status-row supply-row">
+            <div>
+              <span>补给</span>
+              <strong id="supplyLabel">0/8</strong>
+            </div>
+            <div class="status-track supply-track">
+              <span id="supplyFill"></span>
+            </div>
+          </div>
           <div class="status-row">
             <div>
               <span>火力</span>
@@ -77,6 +102,24 @@
             </div>
             <div class="status-track laser-track">
               <span id="laserFill"></span>
+            </div>
+          </div>
+          <div class="status-row dash-row">
+            <div>
+              <span>冲刺</span>
+              <strong id="dashLabel">待命</strong>
+            </div>
+            <div class="status-track dash-track">
+              <span id="dashFill"></span>
+            </div>
+          </div>
+          <div class="status-row drone-row">
+            <div>
+              <span>僚机</span>
+              <strong id="droneLabel">待命</strong>
+            </div>
+            <div class="status-track drone-track">
+              <span id="droneFill"></span>
             </div>
           </div>
           <div class="status-row boss-row" id="bossPanel" hidden>
@@ -100,9 +143,27 @@
           </div>
         </div>
 
+        <div class="difficulty-panel" aria-label="难度选择">
+          <span>难度</span>
+          <div class="difficulty-options" id="difficultyOptions">
+            <button type="button" data-difficulty="normal">普通</button>
+            <button type="button" data-difficulty="veteran">老兵</button>
+            <button type="button" data-difficulty="nightmare">噩梦</button>
+          </div>
+        </div>
+
         <div class="deck-actions">
           <button class="icon-button" id="pauseButton" type="button" title="暂停" aria-label="暂停">
             II
+          </button>
+          <button class="icon-button" id="bombButton" type="button" title="脉冲炸弹" aria-label="脉冲炸弹">
+            B
+          </button>
+          <button class="icon-button" id="dashButton" type="button" title="相位冲刺" aria-label="相位冲刺">
+            ⇧
+          </button>
+          <button class="icon-button" id="audioButton" type="button" title="声音开关" aria-label="声音开关">
+            ♪
           </button>
           <button class="icon-button" id="restartButton" type="button" title="重开" aria-label="重开">
             ↻

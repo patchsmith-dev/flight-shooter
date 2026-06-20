@@ -289,6 +289,21 @@ button {
   background: rgba(185, 140, 255, 0.05);
 }
 
+.drone-row {
+  border-color: rgba(100, 242, 164, 0.22);
+  background: rgba(100, 242, 164, 0.045);
+}
+
+.dash-row {
+  border-color: rgba(56, 215, 255, 0.24);
+  background: rgba(56, 215, 255, 0.045);
+}
+
+.supply-row {
+  border-color: rgba(255, 209, 102, 0.24);
+  background: rgba(255, 209, 102, 0.045);
+}
+
 .laser-row.is-charging {
   border-color: rgba(56, 215, 255, 0.52);
   background: rgba(56, 215, 255, 0.08);
@@ -299,8 +314,35 @@ button {
   border-color: rgba(255, 209, 102, 0.28);
 }
 
+.dash-row.is-active {
+  border-color: rgba(100, 242, 164, 0.5);
+  background: rgba(100, 242, 164, 0.08);
+  box-shadow: inset 0 0 18px rgba(56, 215, 255, 0.14);
+}
+
+.dash-row.is-cooling {
+  border-color: rgba(255, 209, 102, 0.28);
+}
+
 .laser-track span {
   background: linear-gradient(90deg, var(--violet), var(--cyan), #ffffff);
+}
+
+.dash-track span {
+  background: linear-gradient(90deg, var(--cyan), var(--green), #ffffff);
+}
+
+.supply-track span {
+  background: linear-gradient(90deg, var(--amber), var(--green));
+}
+
+.drone-track span {
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+}
+
+.dash-row.is-active .dash-track span {
+  box-shadow: 0 0 14px rgba(100, 242, 164, 0.56);
+  transition: width 80ms linear;
 }
 
 .laser-row.is-charging .laser-track span {
@@ -332,6 +374,47 @@ button {
   color: var(--amber);
 }
 
+.difficulty-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(174, 226, 255, 0.14);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.difficulty-panel > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.difficulty-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.difficulty-options button {
+  min-height: 38px;
+  border: 1px solid rgba(174, 226, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #dff7ff;
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.difficulty-options button.is-active {
+  border-color: rgba(255, 209, 102, 0.58);
+  background: rgba(255, 209, 102, 0.16);
+  color: #fff7d7;
+  box-shadow: inset 0 0 14px rgba(255, 209, 102, 0.12);
+}
+
 .meter-track {
   height: 9px;
   overflow: hidden;
@@ -350,7 +433,7 @@ button {
 
 .deck-actions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 10px;
 }
 
@@ -369,6 +452,11 @@ button {
 .primary-command:hover {
   filter: brightness(1.08);
   transform: translateY(-1px);
+}
+
+.icon-button.is-muted {
+  color: rgba(223, 247, 255, 0.48);
+  text-decoration: line-through;
 }
 
 .pilot-feed {
