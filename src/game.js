@@ -141,6 +141,36 @@ const POWER_LABELS = {
   bomb: "炸弹",
 };
 
+const COMBO_REWARDS = [
+  {
+    combo: 8,
+    label: "护盾回充",
+    shield: 18,
+    score: 180,
+  },
+  {
+    combo: 16,
+    label: "战术炸弹",
+    shield: 24,
+    bombs: 1,
+    score: 320,
+  },
+  {
+    combo: 28,
+    label: "火控超频",
+    shield: 32,
+    weaponUpgrade: 1,
+    score: 520,
+  },
+  {
+    combo: 42,
+    label: "僚机支援",
+    shield: 42,
+    droneUpgrade: 1,
+    score: 800,
+  },
+];
+
 const POWER_TYPES = {
   weapon: {
     tint: 0xffd166,
@@ -552,6 +582,7 @@ class StarwingScene extends Phaser.Scene {
     this.laserChargeText = null;
     this.combo = 0;
     this.comboMultiplier = 1;
+    this.comboRewardIndex = 0;
     this.comboWindowUntil = 0;
     this.maxCombo = 0;
     this.killCount = 0;
@@ -1060,6 +1091,7 @@ class StarwingScene extends Phaser.Scene {
     this.laserButton = null;
     this.combo = 0;
     this.comboMultiplier = 1;
+    this.comboRewardIndex = 0;
     this.comboWindowUntil = 0;
     this.maxCombo = 0;
     this.killCount = 0;
@@ -1099,7 +1131,11 @@ class StarwingScene extends Phaser.Scene {
     this.comboMultiplier = Math.min(5, 1 + Math.floor(Math.max(0, this.combo - 1) / 4) * 0.25);
     const awarded = Math.round(baseScore * this.comboMultiplier * this.getDifficultyConfig().scoreMultiplier);
     this.addScore(awarded);
-    return awarded;
+    const rewardMessage = this.checkComboRewards();
+    return {
+      awarded,
+      rewardMessage,
+    };
   }
 
   recordKill(enemy, allowSupplyDrop) {
@@ -1113,9 +1149,74 @@ class StarwingScene extends Phaser.Scene {
     return true;
   }
 
+  checkComboRewards() {
+    let rewardMessage = "";
+
+    while (this.comboRewardIndex < COMBO_REWARDS.length) {
+      const reward = COMBO_REWARDS[this.comboRewardIndex];
+      if (this.combo < reward.combo) break;
+
+      this.comboRewardIndex += 1;
+      rewardMessage = this.applyComboReward(reward);
+    }
+
+    return rewardMessage;
+  }
+
+  applyComboReward(reward) {
+    AUDIO.playPower();
+    if (reward.score) this.addScore(reward.score);
+    if (reward.shield) this.shield = clamp(this.shield + reward.shield, 0, this.maxShield);
+    if (reward.bombs) this.bombs = clamp(this.bombs + reward.bombs, 0, this.maxBombs);
+
+    if (reward.weaponUpgrade) {
+      this.weaponBoostUntil = RUN_PERMANENT;
+      if (this.weaponUpgradeLevel < POWER_LIMITS.weaponMaxLevel - 1) {
+        this.weaponUpgradeLevel += reward.weaponUpgrade;
+        this.weaponUpgradeLevel = Math.min(this.weaponUpgradeLevel, POWER_LIMITS.weaponMaxLevel - 1);
+        this.weaponLevel = 1 + this.weaponUpgradeLevel;
+      }
+    }
+
+    if (reward.droneUpgrade) {
+      this.droneUntil = RUN_PERMANENT;
+      this.droneLevel = Math.min(POWER_LIMITS.droneMaxLevel, this.droneLevel + reward.droneUpgrade);
+    }
+
+    const message = `${reward.combo} 连击奖励：${reward.label}。`;
+    this.showComboRewardText(reward.label);
+    return message;
+  }
+
+  showComboRewardText(label) {
+    if (!this.player?.active) return;
+
+    const text = this.add.text(this.player.x, this.player.y - 76, label, {
+      color: "#f7ffff",
+      fontFamily: "Inter, Microsoft YaHei, sans-serif",
+      fontSize: "18px",
+      fontStyle: "900",
+      stroke: "#071018",
+      strokeThickness: 5,
+    });
+    text.setOrigin(0.5);
+    text.setDepth(8);
+
+    this.tweens.add({
+      targets: text,
+      y: text.y - 34,
+      alpha: 0,
+      scale: 1.18,
+      duration: 760,
+      ease: "Quad.easeOut",
+      onComplete: () => text.destroy(),
+    });
+  }
+
   resetCombo() {
     this.combo = 0;
     this.comboMultiplier = 1;
+    this.comboRewardIndex = 0;
     this.comboWindowUntil = 0;
   }
 
@@ -1856,9 +1957,10 @@ class StarwingScene extends Phaser.Scene {
     const allowDrop = options.allowDrop !== false;
     this.tweens.killTweensOf(enemy);
     AUDIO.playExplosion(enemy.isBoss);
-    this.awardEnemyScore(enemy.scoreValue || 100);
+    const scoreResult = this.awardEnemyScore(enemy.scoreValue || 100);
     const guaranteedSupply = this.recordKill(enemy, allowDrop);
     this.explosions.emitParticleAt(enemy.x, enemy.y, enemy.isBoss ? 66 : 24);
+    let statusMessage = enemy.isBoss ? "旗舰击毁，轨道门仍在运转。" : "目标消失。";
 
     if (allowDrop && enemy.isBoss) {
       this.dropPower(enemy.x, enemy.y, "shield");
@@ -1870,14 +1972,18 @@ class StarwingScene extends Phaser.Scene {
       this.dropPower(enemy.x, enemy.y, this.pickPowerType());
       if (guaranteedSupply) {
         this.dropPower(enemy.x + 28, enemy.y + 10, this.pickPowerType());
-        this.updateHud("目标掉落补给，额外战斗补给已投放。");
+        statusMessage = "目标掉落补给，额外战斗补给已投放。";
       }
     }
 
-    enemy.destroy();
-    if (!guaranteedSupply) {
-      this.updateHud(enemy.isBoss ? "旗舰击毁，轨道门仍在运转。" : "目标消失。");
+    if (scoreResult.rewardMessage) {
+      statusMessage = guaranteedSupply
+        ? `${scoreResult.rewardMessage} 额外战斗补给已投放。`
+        : scoreResult.rewardMessage;
     }
+
+    enemy.destroy();
+    this.updateHud(statusMessage);
   }
 
   pickPowerType() {
