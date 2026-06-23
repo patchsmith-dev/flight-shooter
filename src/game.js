@@ -126,6 +126,41 @@ const LEVEL_CONFIG = {
   bossWave: 10,
 };
 
+const BOSS_PHASES = [
+  {
+    threshold: 1,
+    label: "巡航",
+    fireRateMultiplier: 1,
+    bulletSpeed: 240,
+    spread: [-210, -105, 0, 105, 210],
+    tint: 0xffffff,
+  },
+  {
+    threshold: 0.75,
+    label: "护盾裂解",
+    fireRateMultiplier: 0.86,
+    bulletSpeed: 258,
+    spread: [-240, -120, 0, 120, 240],
+    tint: 0xffd166,
+  },
+  {
+    threshold: 0.5,
+    label: "核心过热",
+    fireRateMultiplier: 0.72,
+    bulletSpeed: 278,
+    spread: [-280, -168, -56, 56, 168, 280],
+    tint: 0xff8f70,
+  },
+  {
+    threshold: 0.25,
+    label: "终局狂暴",
+    fireRateMultiplier: 0.58,
+    bulletSpeed: 306,
+    spread: [-320, -224, -128, -32, 32, 128, 224, 320],
+    tint: 0xff5f78,
+  },
+];
+
 const POWER_MAGNET_CONFIG = {
   radius: 190,
   minSpeed: 150,
@@ -1582,6 +1617,8 @@ class StarwingScene extends Phaser.Scene {
     boss.maxHp = boss.hp;
     boss.scoreValue = 2800 + this.wave * 260;
     boss.fireRate = Math.max(300, (1120 - progressIndex * 7) * difficulty.fireRateMultiplier);
+    boss.baseFireRate = boss.fireRate;
+    boss.bossPhaseIndex = 0;
     boss.nextShotAt = this.time.now + 900;
     boss.setScale(0.95);
     boss.setVelocity(0, 42);
@@ -1773,6 +1810,7 @@ class StarwingScene extends Phaser.Scene {
         }
       } else if (enemy.y > 110) {
         enemy.setVelocityY(0);
+        this.updateBossPhase(enemy);
       }
 
       if (this.state === GAME_STATE.PLAYING && time >= enemy.nextShotAt) {
@@ -1780,6 +1818,39 @@ class StarwingScene extends Phaser.Scene {
         enemy.nextShotAt = time + enemy.fireRate + Phaser.Math.Between(-180, 260);
       }
     });
+  }
+
+  updateBossPhase(boss) {
+    if (!boss?.active || !boss.maxHp) return;
+
+    const hpRatio = clamp(boss.hp / boss.maxHp, 0, 1);
+    let nextPhaseIndex = 0;
+    for (let index = 1; index < BOSS_PHASES.length; index += 1) {
+      if (hpRatio <= BOSS_PHASES[index].threshold) nextPhaseIndex = index;
+    }
+
+    if (nextPhaseIndex === boss.bossPhaseIndex) return;
+
+    boss.bossPhaseIndex = nextPhaseIndex;
+    const phase = BOSS_PHASES[nextPhaseIndex];
+    boss.fireRate = Math.max(220, boss.baseFireRate * phase.fireRateMultiplier);
+    boss.setTint(phase.tint);
+    this.explosions.emitParticleAt(boss.x, boss.y, 42);
+    this.cameras.main.shake(120, 0.004 + nextPhaseIndex * 0.001);
+
+    const pulse = this.add.circle(boss.x, boss.y, 64, phase.tint, 0.12);
+    pulse.setStrokeStyle(3, phase.tint, 0.68);
+    pulse.setDepth(5);
+    this.tweens.add({
+      targets: pulse,
+      radius: 168,
+      alpha: 0,
+      duration: 520,
+      ease: "Quad.easeOut",
+      onComplete: () => pulse.destroy(),
+    });
+
+    this.updateHud(`Boss 阶段变化：${phase.label}，火力正在增强。`);
   }
 
   updateProjectiles() {
@@ -1914,8 +1985,9 @@ class StarwingScene extends Phaser.Scene {
 
   fireEnemyWeapon(enemy) {
     AUDIO.playEnemyShot();
-    const shotCount = enemy.isBoss ? 5 : 1;
-    const spread = enemy.isBoss ? [-210, -105, 0, 105, 210] : [0];
+    const bossPhase = enemy.isBoss ? BOSS_PHASES[enemy.bossPhaseIndex] || BOSS_PHASES[0] : null;
+    const spread = bossPhase?.spread || [0];
+    const shotCount = spread.length;
     for (let i = 0; i < shotCount; i += 1) {
       const bullet = this.enemyBullets.getFirstDead(false) || this.enemyBullets.create(0, 0, "enemyShot");
       if (!bullet) return;
@@ -1929,8 +2001,12 @@ class StarwingScene extends Phaser.Scene {
         bullet.rotation = angle + Math.PI / 2;
         bullet.setTint(0x9ef7ff);
       } else {
-        bullet.setVelocity(spread[i], enemy.isBoss ? 240 : 260 + this.wave * 12);
-        bullet.clearTint();
+        bullet.setVelocity(spread[i], enemy.isBoss ? bossPhase.bulletSpeed + this.wave * 8 : 260 + this.wave * 12);
+        if (enemy.isBoss) {
+          bullet.setTint(bossPhase.tint);
+        } else {
+          bullet.clearTint();
+        }
       }
       bullet.setCircle(12, 10, 10);
       bullet.setDepth(2);
@@ -2312,9 +2388,10 @@ class StarwingScene extends Phaser.Scene {
 
     if (this.boss?.active && this.boss.maxHp > 0) {
       const bossRatio = clamp(this.boss.hp / this.boss.maxHp, 0, 1);
+      const bossPhase = BOSS_PHASES[this.boss.bossPhaseIndex] || BOSS_PHASES[0];
       HUD.bossPanel.hidden = false;
       HUD.bossFill.style.width = `${Math.round(bossRatio * 100)}%`;
-      HUD.bossLabel.textContent = `${Math.ceil(bossRatio * 100)}%`;
+      HUD.bossLabel.textContent = `${bossPhase.label} ${Math.ceil(bossRatio * 100)}%`;
     } else {
       HUD.bossPanel.hidden = true;
       HUD.bossFill.style.width = "0%";
