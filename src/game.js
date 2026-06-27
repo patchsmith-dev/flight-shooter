@@ -10,6 +10,7 @@ const HUD = {
   shield: document.getElementById("shieldValue"),
   bombs: document.getElementById("bombValue"),
   kills: document.getElementById("killsValue"),
+  graze: document.getElementById("grazeValue"),
   profile: document.getElementById("profileValue"),
   supplyLabel: document.getElementById("supplyLabel"),
   supplyFill: document.getElementById("supplyFill"),
@@ -118,6 +119,14 @@ const POWER_LIMITS = {
 
 const SUPPLY_CONFIG = {
   killsPerDrop: 8,
+};
+
+const GRAZE_CONFIG = {
+  radius: 58,
+  minDistance: 22,
+  score: 22,
+  shieldEvery: 6,
+  shieldReward: 8,
 };
 
 const LEVEL_CONFIG = {
@@ -621,6 +630,8 @@ class StarwingScene extends Phaser.Scene {
     this.comboWindowUntil = 0;
     this.maxCombo = 0;
     this.killCount = 0;
+    this.grazeCount = 0;
+    this.lastGrazeNoticeAt = 0;
     this.supplyCharge = 0;
     this.lastShotAt = 0;
     this.lastDroneShotAt = 0;
@@ -1130,6 +1141,8 @@ class StarwingScene extends Phaser.Scene {
     this.comboWindowUntil = 0;
     this.maxCombo = 0;
     this.killCount = 0;
+    this.grazeCount = 0;
+    this.lastGrazeNoticeAt = 0;
     this.supplyCharge = 0;
     this.lastShotAt = 0;
     this.lastDroneShotAt = 0;
@@ -1858,9 +1871,57 @@ class StarwingScene extends Phaser.Scene {
       if (bullet.y < -36) bullet.destroy();
     });
     this.enemyBullets.getChildren().forEach((bullet) => {
+      this.checkGrazeReward(bullet);
       if (bullet.y > this.bounds.height + 36 || bullet.x < -36 || bullet.x > this.bounds.width + 36) {
         bullet.destroy();
       }
+    });
+  }
+
+  checkGrazeReward(bullet) {
+    if (!bullet.active) return;
+    if (bullet.grazed || this.state !== GAME_STATE.PLAYING || !this.player?.active) return;
+    if (this.invulnerableUntil > this.time.now) return;
+
+    const distance = Phaser.Math.Distance.Between(bullet.x, bullet.y, this.player.x, this.player.y);
+    if (distance < GRAZE_CONFIG.minDistance || distance > GRAZE_CONFIG.radius) return;
+
+    bullet.grazed = true;
+    bullet.setTint(0xf7ffff);
+    this.grazeCount += 1;
+    this.addScore(GRAZE_CONFIG.score * this.getDifficultyConfig().scoreMultiplier);
+
+    const shieldRewarded = this.grazeCount % GRAZE_CONFIG.shieldEvery === 0;
+    if (shieldRewarded) {
+      this.shield = clamp(this.shield + GRAZE_CONFIG.shieldReward, 0, this.maxShield);
+    }
+
+    this.showGrazeText(bullet.x, bullet.y, shieldRewarded);
+    if (shieldRewarded || this.time.now - this.lastGrazeNoticeAt > 900) {
+      this.lastGrazeNoticeAt = this.time.now;
+      this.updateHud(shieldRewarded ? "精准擦弹，护盾回充。" : "近距擦弹，获得额外分数。");
+    }
+  }
+
+  showGrazeText(x, y, shieldRewarded) {
+    const text = this.add.text(x, y, shieldRewarded ? "+护盾" : "+擦弹", {
+      color: shieldRewarded ? "#64f2a4" : "#f7ffff",
+      fontFamily: "Inter, Microsoft YaHei, sans-serif",
+      fontSize: "13px",
+      fontStyle: "900",
+      stroke: "#071018",
+      strokeThickness: 4,
+    });
+    text.setOrigin(0.5);
+    text.setDepth(7);
+
+    this.tweens.add({
+      targets: text,
+      y: y - 28,
+      alpha: 0,
+      duration: 520,
+      ease: "Quad.easeOut",
+      onComplete: () => text.destroy(),
     });
   }
 
@@ -1992,6 +2053,7 @@ class StarwingScene extends Phaser.Scene {
       const bullet = this.enemyBullets.getFirstDead(false) || this.enemyBullets.create(0, 0, "enemyShot");
       if (!bullet) return;
       bullet.isEnemyShot = true;
+      bullet.grazed = false;
       bullet.enableBody(true, enemy.x, enemy.y + 38, true, true);
       bullet.setScale(enemy.isBoss ? 0.74 : 0.58);
       if (enemy.enemyType === "interceptor" && this.player?.active) {
@@ -2279,15 +2341,15 @@ class StarwingScene extends Phaser.Scene {
     this.showOverlay(
       victory ? "轨道门安全" : "通讯中断",
       victory
-        ? `评级 ${grade}，${this.getDifficultyConfig().label}难度，最终得分 ${this.score}，击坠 ${this.killCount}，最高连击 ${this.maxCombo}。${profileUpdated ? " 档案已刷新。" : ""}`
-        : `评级 ${grade}，${this.getDifficultyConfig().label}难度，最终得分 ${this.score}，击坠 ${this.killCount}，最高连击 ${this.maxCombo}。${profileUpdated ? " 档案已刷新。" : ""}`,
+        ? `评级 ${grade}，${this.getDifficultyConfig().label}难度，最终得分 ${this.score}，击坠 ${this.killCount}，擦弹 ${this.grazeCount}，最高连击 ${this.maxCombo}。${profileUpdated ? " 档案已刷新。" : ""}`
+        : `评级 ${grade}，${this.getDifficultyConfig().label}难度，最终得分 ${this.score}，击坠 ${this.killCount}，擦弹 ${this.grazeCount}，最高连击 ${this.maxCombo}。${profileUpdated ? " 档案已刷新。" : ""}`,
       "再来一局"
     );
     this.updateHud(victory ? "任务完成。" : "任务失败。");
   }
 
   getRunGrade() {
-    const score = this.score + this.killCount * 45 + this.maxCombo * 90 + (this.lives > 0 ? this.lives * 260 : 0);
+    const score = this.score + this.killCount * 45 + this.grazeCount * 28 + this.maxCombo * 90 + (this.lives > 0 ? this.lives * 260 : 0);
     if (score >= 18000 || (this.wave >= LEVEL_CONFIG.maxLevel && this.levelWave >= LEVEL_CONFIG.wavesPerLevel && this.maxCombo >= 28)) return "S";
     if (score >= 12500 || this.maxCombo >= 22) return "A";
     if (score >= 8200 || this.maxCombo >= 15) return "B";
@@ -2331,6 +2393,7 @@ class StarwingScene extends Phaser.Scene {
     HUD.shield.textContent = `${Math.round(this.shield)}/${this.maxShield}`;
     HUD.bombs.textContent = String(Math.max(0, this.bombs));
     HUD.kills.textContent = String(this.killCount);
+    HUD.graze.textContent = String(this.grazeCount);
     HUD.profile.textContent = `${this.profile.bestGrade}/${this.profile.bestLevel}`;
     HUD.supplyFill.style.width = `${Math.round(clamp(this.supplyCharge / SUPPLY_CONFIG.killsPerDrop, 0, 1) * 100)}%`;
     HUD.supplyLabel.textContent = `${this.supplyCharge}/${SUPPLY_CONFIG.killsPerDrop}`;
