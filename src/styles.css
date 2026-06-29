@@ -374,6 +374,70 @@ button {
   color: var(--amber);
 }
 
+.mission-objectives {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(174, 226, 255, 0.14);
+  border-radius: 8px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.objective-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.objective-heading span,
+.objective-item span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.objective-heading strong,
+.objective-item strong {
+  color: #dff7ff;
+  font-size: 0.86rem;
+}
+
+.objective-list {
+  display: grid;
+  gap: 8px;
+}
+
+.objective-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.objective-item em {
+  grid-column: 1 / -1;
+  color: var(--amber);
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.objective-item.is-complete {
+  border-color: rgba(100, 242, 164, 0.32);
+  background: rgba(100, 242, 164, 0.07);
+}
+
+.objective-item.is-complete strong,
+.objective-item.is-complete em {
+  color: var(--green);
+}
+
 .difficulty-panel {
   display: grid;
   gap: 10px;

@@ -29,6 +29,7 @@ const HUD = {
   bossFill: document.getElementById("bossFill"),
   threatLabel: document.getElementById("threatLabel"),
   threatFill: document.getElementById("threatFill"),
+  objectiveList: document.getElementById("objectiveList"),
   feed: document.getElementById("feedText"),
   overlay: document.getElementById("screenOverlay"),
   overlayTitle: document.getElementById("overlayTitle"),
@@ -212,6 +213,34 @@ const COMBO_REWARDS = [
     shield: 42,
     droneUpgrade: 1,
     score: 800,
+  },
+];
+
+const MISSION_OBJECTIVES = [
+  {
+    key: "kills",
+    label: "击坠",
+    target: 20,
+    rewardLabel: "+1 炸弹",
+    score: 420,
+    bombs: 1,
+  },
+  {
+    key: "combo",
+    label: "连击",
+    target: 18,
+    rewardLabel: "火力补偿",
+    score: 520,
+    shield: 18,
+    weaponUpgrade: 1,
+  },
+  {
+    key: "graze",
+    label: "擦弹",
+    target: 12,
+    rewardLabel: "护盾回充",
+    score: 360,
+    shield: 28,
   },
 ];
 
@@ -632,6 +661,8 @@ class StarwingScene extends Phaser.Scene {
     this.killCount = 0;
     this.grazeCount = 0;
     this.lastGrazeNoticeAt = 0;
+    this.completedObjectives = {};
+    this.objectiveHudKey = "";
     this.supplyCharge = 0;
     this.lastShotAt = 0;
     this.lastDroneShotAt = 0;
@@ -1143,6 +1174,8 @@ class StarwingScene extends Phaser.Scene {
     this.killCount = 0;
     this.grazeCount = 0;
     this.lastGrazeNoticeAt = 0;
+    this.completedObjectives = {};
+    this.objectiveHudKey = "";
     this.supplyCharge = 0;
     this.lastShotAt = 0;
     this.lastDroneShotAt = 0;
@@ -1901,6 +1934,7 @@ class StarwingScene extends Phaser.Scene {
       this.lastGrazeNoticeAt = this.time.now;
       this.updateHud(shieldRewarded ? "精准擦弹，护盾回充。" : "近距擦弹，获得额外分数。");
     }
+    this.checkMissionObjectives();
   }
 
   showGrazeText(x, y, shieldRewarded) {
@@ -2122,6 +2156,7 @@ class StarwingScene extends Phaser.Scene {
 
     enemy.destroy();
     this.updateHud(statusMessage);
+    this.checkMissionObjectives();
   }
 
   pickPowerType() {
@@ -2375,6 +2410,74 @@ class StarwingScene extends Phaser.Scene {
     return changed;
   }
 
+  getObjectiveProgress(objective) {
+    if (objective.key === "kills") return this.killCount;
+    if (objective.key === "combo") return this.maxCombo;
+    if (objective.key === "graze") return this.grazeCount;
+    return 0;
+  }
+
+  checkMissionObjectives() {
+    MISSION_OBJECTIVES.forEach((objective) => {
+      if (this.completedObjectives[objective.key]) return;
+      if (this.getObjectiveProgress(objective) < objective.target) return;
+
+      this.completedObjectives[objective.key] = true;
+      this.applyMissionObjectiveReward(objective);
+    });
+  }
+
+  applyMissionObjectiveReward(objective) {
+    AUDIO.playPower();
+    if (objective.score) this.addScore(objective.score);
+    if (objective.shield) this.shield = clamp(this.shield + objective.shield, 0, this.maxShield);
+    if (objective.bombs) this.bombs = clamp(this.bombs + objective.bombs, 0, this.maxBombs);
+
+    if (objective.weaponUpgrade) {
+      this.weaponBoostUntil = RUN_PERMANENT;
+      if (this.weaponUpgradeLevel < POWER_LIMITS.weaponMaxLevel - 1) {
+        this.weaponUpgradeLevel += objective.weaponUpgrade;
+        this.weaponUpgradeLevel = Math.min(this.weaponUpgradeLevel, POWER_LIMITS.weaponMaxLevel - 1);
+        this.weaponLevel = 1 + this.weaponUpgradeLevel;
+      }
+    }
+
+    this.showComboRewardText(objective.rewardLabel);
+    this.updateHud(`战术目标完成：${objective.label} ${objective.target}，奖励 ${objective.rewardLabel}。`);
+  }
+
+  updateMissionObjectivesHud() {
+    if (!HUD.objectiveList) return;
+
+    const hudKey = MISSION_OBJECTIVES.map((objective) => {
+      const progress = Math.min(objective.target, this.getObjectiveProgress(objective));
+      return `${objective.key}:${progress}:${this.completedObjectives[objective.key] ? 1 : 0}`;
+    }).join("|");
+    if (hudKey === this.objectiveHudKey) return;
+    this.objectiveHudKey = hudKey;
+
+    HUD.objectiveList.replaceChildren(
+      ...MISSION_OBJECTIVES.map((objective) => {
+        const progress = Math.min(objective.target, this.getObjectiveProgress(objective));
+        const complete = Boolean(this.completedObjectives[objective.key]);
+        const item = document.createElement("div");
+        item.className = `objective-item${complete ? " is-complete" : ""}`;
+
+        const label = document.createElement("span");
+        label.textContent = objective.label;
+
+        const value = document.createElement("strong");
+        value.textContent = complete ? "完成" : `${progress}/${objective.target}`;
+
+        const reward = document.createElement("em");
+        reward.textContent = objective.rewardLabel;
+
+        item.append(label, value, reward);
+        return item;
+      })
+    );
+  }
+
   clearWaveTimers() {
     this.spawnTimers.forEach((timer) => timer.remove(false));
     this.spawnTimers = [];
@@ -2397,6 +2500,7 @@ class StarwingScene extends Phaser.Scene {
     HUD.profile.textContent = `${this.profile.bestGrade}/${this.profile.bestLevel}`;
     HUD.supplyFill.style.width = `${Math.round(clamp(this.supplyCharge / SUPPLY_CONFIG.killsPerDrop, 0, 1) * 100)}%`;
     HUD.supplyLabel.textContent = `${this.supplyCharge}/${SUPPLY_CONFIG.killsPerDrop}`;
+    this.updateMissionObjectivesHud();
 
     const boostPermanent = this.weaponBoostUntil === RUN_PERMANENT;
     const boostRemaining = boostPermanent ? RUN_PERMANENT : Math.max(0, this.weaponBoostUntil - this.time.now);

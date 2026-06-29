@@ -10,7 +10,7 @@
     <title>星翼突击 | Flight Shooter</title>
     <link rel="stylesheet" href="./src/styles.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
-    <script defer src="./src/game.js?v=20260628-graze-rewards"></script>
+    <script defer src="./src/game.js?v=20260629-objectives"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -145,6 +145,14 @@
           <div class="meter-track">
             <span id="threatFill"></span>
           </div>
+        </div>
+
+        <div class="mission-objectives" aria-label="战术目标">
+          <div class="objective-heading">
+            <span>目标</span>
+            <strong>战术奖励</strong>
+          </div>
+          <div class="objective-list" id="objectiveList"></div>
         </div>
 
         <div class="difficulty-panel" aria-label="难度选择">
