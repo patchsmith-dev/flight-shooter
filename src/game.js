@@ -130,6 +130,12 @@ const GRAZE_CONFIG = {
   shieldReward: 8,
 };
 
+const SHIELD_BREAK_CONFIG = {
+  clearRadius: 178,
+  invulnerableMs: 760,
+  scorePerBullet: 16,
+};
+
 const LEVEL_CONFIG = {
   maxLevel: 10,
   wavesPerLevel: 10,
@@ -1773,15 +1779,7 @@ class StarwingScene extends Phaser.Scene {
     this.dashCooldownUntil = this.time.now + DASH_CONFIG.cooldownMs;
     this.invulnerableUntil = Math.max(this.invulnerableUntil, this.dashActiveUntil + 160);
 
-    let clearedBullets = 0;
-    [...this.enemyBullets.getChildren()].forEach((bullet) => {
-      if (!bullet.active) return;
-      const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, bullet.x, bullet.y);
-      if (distance <= DASH_CONFIG.bulletClearRadius) {
-        bullet.destroy();
-        clearedBullets += 1;
-      }
-    });
+    const clearedBullets = this.clearEnemyBulletsNearPlayer(DASH_CONFIG.bulletClearRadius);
 
     const ring = this.add.circle(this.player.x, this.player.y, 24, 0x64f2a4, 0.1);
     ring.setStrokeStyle(2, 0x38d7ff, 0.76);
@@ -2306,17 +2304,23 @@ class StarwingScene extends Phaser.Scene {
     this.resetCombo();
     AUDIO.playHit();
 
+    const shieldBeforeHit = this.shield;
+    let shieldBroken = false;
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
       this.shield -= absorbed;
       amount -= absorbed;
+      if (shieldBeforeHit > 0 && this.shield <= 0) {
+        this.triggerShieldBreak();
+        shieldBroken = true;
+      }
     }
 
     this.cameras.main.shake(130, 0.006);
     this.explosions.emitParticleAt(this.player.x, this.player.y, 20);
 
     if (amount <= 0) {
-      this.updateHud("护盾承受冲击。");
+      if (!shieldBroken) this.updateHud("护盾承受冲击。");
       return;
     }
 
@@ -2331,7 +2335,44 @@ class StarwingScene extends Phaser.Scene {
       this.endMission(false);
       return;
     }
-    this.updateHud("装甲受损，生命维持在线。");
+    this.updateHud(shieldBroken ? "护盾破裂，装甲受损，生命维持在线。" : "装甲受损，生命维持在线。");
+  }
+
+  triggerShieldBreak() {
+    if (!this.player?.active) return;
+
+    const clearedBullets = this.clearEnemyBulletsNearPlayer(SHIELD_BREAK_CONFIG.clearRadius);
+    this.invulnerableUntil = Math.max(this.invulnerableUntil, this.time.now + SHIELD_BREAK_CONFIG.invulnerableMs);
+    this.addScore(clearedBullets * SHIELD_BREAK_CONFIG.scorePerBullet);
+
+    const ring = this.add.circle(this.player.x, this.player.y, 34, 0x64f2a4, 0.12);
+    ring.setStrokeStyle(3, 0xf7ffff, 0.76);
+    ring.setDepth(6);
+    this.tweens.add({
+      targets: ring,
+      radius: SHIELD_BREAK_CONFIG.clearRadius,
+      alpha: 0,
+      duration: 360,
+      ease: "Quad.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+
+    this.cameras.main.shake(110, 0.005);
+    this.updateHud(clearedBullets > 0 ? `护盾破裂，清除近身弹体 ${clearedBullets} 枚。` : "护盾破裂，短暂无敌启动。");
+  }
+
+  clearEnemyBulletsNearPlayer(radius) {
+    if (!this.player?.active) return 0;
+
+    let clearedBullets = 0;
+    [...this.enemyBullets.getChildren()].forEach((bullet) => {
+      if (!bullet.active) return;
+      const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, bullet.x, bullet.y);
+      if (distance > radius) return;
+      bullet.destroy();
+      clearedBullets += 1;
+    });
+    return clearedBullets;
   }
 
   checkWaveClear() {
