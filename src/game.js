@@ -22,6 +22,9 @@ const HUD = {
   dashRow: document.querySelector(".dash-row"),
   dashLabel: document.getElementById("dashLabel"),
   dashFill: document.getElementById("dashFill"),
+  overdriveRow: document.querySelector(".overdrive-row"),
+  overdriveLabel: document.getElementById("overdriveLabel"),
+  overdriveFill: document.getElementById("overdriveFill"),
   droneLabel: document.getElementById("droneLabel"),
   droneFill: document.getElementById("droneFill"),
   bossPanel: document.getElementById("bossPanel"),
@@ -38,6 +41,7 @@ const HUD = {
   pauseButton: document.getElementById("pauseButton"),
   bombButton: document.getElementById("bombButton"),
   dashButton: document.getElementById("dashButton"),
+  overdriveButton: document.getElementById("overdriveButton"),
   audioButton: document.getElementById("audioButton"),
   restartButton: document.getElementById("restartButton"),
   fullscreenButton: document.getElementById("fullscreenButton"),
@@ -107,6 +111,18 @@ const DASH_CONFIG = {
   cooldownMs: 4200,
   speedMultiplier: 1.72,
   bulletClearRadius: 148,
+};
+
+const OVERDRIVE_CONFIG = {
+  maxCharge: 100,
+  killCharge: 8,
+  bossKillCharge: 28,
+  grazeCharge: 4,
+  activeMs: 6400,
+  bulletClearRadius: 118,
+  fireRateMultiplier: 0.68,
+  damageBonus: 0.45,
+  speedBonus: 70,
 };
 
 const RUN_PERMANENT = Number.POSITIVE_INFINITY;
@@ -645,6 +661,8 @@ class StarwingScene extends Phaser.Scene {
     this.weaponBoostUntil = 0;
     this.dashActiveUntil = 0;
     this.dashCooldownUntil = 0;
+    this.overdriveCharge = 0;
+    this.overdriveUntil = 0;
     this.droneUntil = 0;
     this.droneLevel = 0;
     this.drones = [];
@@ -1062,6 +1080,7 @@ class StarwingScene extends Phaser.Scene {
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
       fire: Phaser.Input.Keyboard.KeyCodes.SPACE,
+      overdrive: Phaser.Input.Keyboard.KeyCodes.E,
       pause: Phaser.Input.Keyboard.KeyCodes.P,
       restart: Phaser.Input.Keyboard.KeyCodes.R,
     });
@@ -1117,6 +1136,7 @@ class StarwingScene extends Phaser.Scene {
     HUD.pauseButton.addEventListener("click", () => this.togglePause(), options);
     HUD.bombButton.addEventListener("click", () => this.useBomb(), options);
     HUD.dashButton.addEventListener("click", () => this.useDash(), options);
+    HUD.overdriveButton.addEventListener("click", () => this.useOverdrive(), options);
     HUD.audioButton.addEventListener("click", () => this.toggleAudio(), options);
     HUD.restartButton.addEventListener("click", () => this.restartMission(true), options);
     HUD.fullscreenButton.addEventListener("click", () => this.toggleFullscreen(), options);
@@ -1138,6 +1158,14 @@ class StarwingScene extends Phaser.Scene {
         if (event.repeat) return;
         event.preventDefault();
         this.useDash();
+      },
+      options
+    );
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.code !== "KeyE" || event.repeat) return;
+        this.useOverdrive();
       },
       options
     );
@@ -1164,6 +1192,8 @@ class StarwingScene extends Phaser.Scene {
     this.weaponBoostUntil = 0;
     this.dashActiveUntil = 0;
     this.dashCooldownUntil = 0;
+    this.overdriveCharge = 0;
+    this.overdriveUntil = 0;
     this.droneUntil = 0;
     this.droneLevel = 0;
     this.invulnerableUntil = 0;
@@ -1227,6 +1257,7 @@ class StarwingScene extends Phaser.Scene {
 
   recordKill(enemy, allowSupplyDrop) {
     this.killCount += 1;
+    this.addOverdriveCharge(enemy?.isBoss ? OVERDRIVE_CONFIG.bossKillCharge : OVERDRIVE_CONFIG.killCharge);
     if (!allowSupplyDrop || enemy?.isBoss) return false;
 
     this.supplyCharge = Math.min(SUPPLY_CONFIG.killsPerDrop, this.supplyCharge + 1);
@@ -1234,6 +1265,49 @@ class StarwingScene extends Phaser.Scene {
 
     this.supplyCharge = 0;
     return true;
+  }
+
+  addOverdriveCharge(amount) {
+    if (this.overdriveUntil > this.time.now) return;
+    this.overdriveCharge = clamp(this.overdriveCharge + amount, 0, OVERDRIVE_CONFIG.maxCharge);
+  }
+
+  isOverdriveActive() {
+    return this.overdriveUntil > this.time.now;
+  }
+
+  useOverdrive() {
+    if (this.state !== GAME_STATE.PLAYING || !this.player?.active) return;
+    if (this.isOverdriveActive()) {
+      this.updateHud("超载模式已在运行。");
+      return;
+    }
+    if (this.overdriveCharge < OVERDRIVE_CONFIG.maxCharge) {
+      this.updateHud(`超载能量不足：${Math.round(this.overdriveCharge)}%。`);
+      return;
+    }
+
+    AUDIO.playPower();
+    this.overdriveCharge = 0;
+    this.overdriveUntil = this.time.now + OVERDRIVE_CONFIG.activeMs;
+    const clearedBullets = this.clearEnemyBulletsNearPlayer(OVERDRIVE_CONFIG.bulletClearRadius);
+    this.addScore(clearedBullets * 14);
+    this.showOverdrivePulse();
+    this.updateHud(clearedBullets > 0 ? `超载模式启动，清除近身弹体 ${clearedBullets} 枚。` : "超载模式启动，火控阵列加速。");
+  }
+
+  showOverdrivePulse() {
+    const ring = this.add.circle(this.player.x, this.player.y, 28, 0xffd166, 0.13);
+    ring.setStrokeStyle(3, 0xffffff, 0.74);
+    ring.setDepth(6);
+    this.tweens.add({
+      targets: ring,
+      radius: OVERDRIVE_CONFIG.bulletClearRadius,
+      alpha: 0,
+      duration: 320,
+      ease: "Quad.easeOut",
+      onComplete: () => ring.destroy(),
+    });
   }
 
   checkComboRewards() {
@@ -1735,7 +1809,8 @@ class StarwingScene extends Phaser.Scene {
     if (!this.player) return;
 
     const isDashing = this.dashActiveUntil > this.time.now;
-    const speed = isDashing ? 330 * DASH_CONFIG.speedMultiplier : 330;
+    const baseSpeed = 330 + (this.isOverdriveActive() ? OVERDRIVE_CONFIG.speedBonus : 0);
+    const speed = isDashing ? baseSpeed * DASH_CONFIG.speedMultiplier : baseSpeed;
     let vx = 0;
     let vy = 0;
 
@@ -1758,10 +1833,17 @@ class StarwingScene extends Phaser.Scene {
     this.player.y = clamp(this.player.y, this.bounds.height * 0.42, this.bounds.height - 42);
     this.playerAura.setPosition(this.player.x, this.player.y);
     this.player.setAlpha(this.invulnerableUntil > this.time.now ? 0.58 + Math.sin(this.time.now / 58) * 0.22 : 1);
+    const overdriveActive = this.isOverdriveActive();
     this.playerAura.setAlpha(
-      isDashing ? 0.38 + Math.sin(this.time.now / 42) * 0.1 : this.shield > 0 ? 0.25 + Math.sin(this.time.now / 120) * 0.08 : 0.08
+      isDashing
+        ? 0.38 + Math.sin(this.time.now / 42) * 0.1
+        : overdriveActive
+          ? 0.34 + Math.sin(this.time.now / 56) * 0.1
+          : this.shield > 0
+            ? 0.25 + Math.sin(this.time.now / 120) * 0.08
+            : 0.08
     );
-    this.playerAura.setRadius(isDashing ? 66 : this.shield > 0 ? 52 : 42);
+    this.playerAura.setRadius(isDashing ? 66 : overdriveActive ? 60 : this.shield > 0 ? 52 : 42);
   }
 
   useDash() {
@@ -1920,6 +2002,7 @@ class StarwingScene extends Phaser.Scene {
     bullet.grazed = true;
     bullet.setTint(0xf7ffff);
     this.grazeCount += 1;
+    this.addOverdriveCharge(OVERDRIVE_CONFIG.grazeCharge);
     this.addScore(GRAZE_CONFIG.score * this.getDifficultyConfig().scoreMultiplier);
 
     const shieldRewarded = this.grazeCount % GRAZE_CONFIG.shieldEvery === 0;
@@ -1983,7 +2066,8 @@ class StarwingScene extends Phaser.Scene {
   }
 
   firePlayerWeapon(time) {
-    const interval = Math.max(82, 168 - this.weaponUpgradeLevel * 18);
+    const overdriveActive = this.isOverdriveActive();
+    const interval = Math.max(62, (168 - this.weaponUpgradeLevel * 18) * (overdriveActive ? OVERDRIVE_CONFIG.fireRateMultiplier : 1));
     if (time - this.lastShotAt < interval) return;
     this.lastShotAt = time;
     AUDIO.playShot();
@@ -1995,7 +2079,8 @@ class StarwingScene extends Phaser.Scene {
       4: [-24, -8, 8, 24],
       5: [-30, -18, -6, 6, 18, 30],
     };
-    const shots = shotPatterns[Math.min(this.weaponLevel, POWER_LIMITS.weaponMaxLevel)] || shotPatterns[1];
+    const effectiveWeaponLevel = Math.min(this.weaponLevel + (overdriveActive ? 1 : 0), POWER_LIMITS.weaponMaxLevel);
+    const shots = shotPatterns[effectiveWeaponLevel] || shotPatterns[1];
     shots.forEach((offset, index) => {
       const bullet = this.playerBullets.getFirstDead(false) || this.playerBullets.create(0, 0, "playerShot");
       if (!bullet) return;
@@ -2005,8 +2090,12 @@ class StarwingScene extends Phaser.Scene {
       bullet.setScale(Math.abs(index - centerIndex) < 0.6 ? 0.74 : 0.58);
       bullet.setVelocity(offset * 4.6, -580 - this.weaponUpgradeLevel * 18);
       bullet.setCircle(12, 10, 10);
-      bullet.damage = 1 + this.weaponUpgradeLevel * 0.18;
-      bullet.clearTint();
+      bullet.damage = 1 + this.weaponUpgradeLevel * 0.18 + (overdriveActive ? OVERDRIVE_CONFIG.damageBonus : 0);
+      if (overdriveActive) {
+        bullet.setTint(0xfff2a6);
+      } else {
+        bullet.clearTint();
+      }
       bullet.setDepth(2);
     });
   }
@@ -2582,6 +2671,20 @@ class StarwingScene extends Phaser.Scene {
     } else {
       HUD.dashFill.style.width = "100%";
       HUD.dashLabel.textContent = "待命";
+    }
+
+    const overdriveRemaining = Math.max(0, this.overdriveUntil - this.time.now);
+    const overdriveActive = overdriveRemaining > 0;
+    HUD.overdriveRow?.classList.toggle("is-active", overdriveActive);
+    HUD.overdriveButton?.classList.toggle("is-ready", !overdriveActive && this.overdriveCharge >= OVERDRIVE_CONFIG.maxCharge);
+    HUD.overdriveButton?.classList.toggle("is-active", overdriveActive);
+    if (overdriveActive) {
+      HUD.overdriveFill.style.width = `${Math.round(clamp(overdriveRemaining / OVERDRIVE_CONFIG.activeMs, 0, 1) * 100)}%`;
+      HUD.overdriveLabel.textContent = `${(overdriveRemaining / 1000).toFixed(1)}s`;
+    } else {
+      const overdriveRatio = clamp(this.overdriveCharge / OVERDRIVE_CONFIG.maxCharge, 0, 1);
+      HUD.overdriveFill.style.width = `${Math.round(overdriveRatio * 100)}%`;
+      HUD.overdriveLabel.textContent = overdriveRatio >= 1 ? "就绪" : `${Math.round(overdriveRatio * 100)}%`;
     }
 
     const dronePermanent = this.droneUntil === RUN_PERMANENT;

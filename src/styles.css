@@ -299,6 +299,11 @@ button {
   background: rgba(56, 215, 255, 0.045);
 }
 
+.overdrive-row {
+  border-color: rgba(255, 209, 102, 0.24);
+  background: rgba(255, 209, 102, 0.045);
+}
+
 .supply-row {
   border-color: rgba(255, 209, 102, 0.24);
   background: rgba(255, 209, 102, 0.045);
@@ -324,6 +329,12 @@ button {
   border-color: rgba(255, 209, 102, 0.28);
 }
 
+.overdrive-row.is-active {
+  border-color: rgba(255, 209, 102, 0.56);
+  background: rgba(255, 209, 102, 0.09);
+  box-shadow: inset 0 0 18px rgba(255, 209, 102, 0.16);
+}
+
 .laser-track span {
   background: linear-gradient(90deg, var(--violet), var(--cyan), #ffffff);
 }
@@ -334,6 +345,10 @@ button {
 
 .supply-track span {
   background: linear-gradient(90deg, var(--amber), var(--green));
+}
+
+.overdrive-track span {
+  background: linear-gradient(90deg, var(--amber), #ffffff, var(--cyan));
 }
 
 .drone-track span {
@@ -348,6 +363,22 @@ button {
 .laser-row.is-charging .laser-track span {
   box-shadow: 0 0 14px rgba(56, 215, 255, 0.58);
   transition: width 80ms linear;
+}
+
+.overdrive-row.is-active .overdrive-track span {
+  box-shadow: 0 0 14px rgba(255, 209, 102, 0.58);
+  transition: width 80ms linear;
+}
+
+.icon-button.is-ready {
+  border-color: rgba(255, 209, 102, 0.58);
+  color: #fff7d7;
+  box-shadow: inset 0 0 16px rgba(255, 209, 102, 0.16);
+}
+
+.icon-button.is-active {
+  border-color: rgba(100, 242, 164, 0.5);
+  color: #dfffe8;
 }
 
 .boss-track span {
