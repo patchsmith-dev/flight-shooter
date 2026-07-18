@@ -158,6 +158,15 @@ const LEVEL_CONFIG = {
   bossWave: 10,
 };
 
+const FLAWLESS_WAVE_CONFIG = {
+  score: 260,
+  bossScore: 900,
+  shield: 10,
+  bossShield: 24,
+  overdriveCharge: 10,
+  bossOverdriveCharge: 24,
+};
+
 const BOSS_PHASES = [
   {
     threshold: 1,
@@ -692,6 +701,7 @@ class StarwingScene extends Phaser.Scene {
     this.lastDroneShotAt = 0;
     this.lastDashTrailAt = 0;
     this.waveActive = false;
+    this.waveHadDamage = false;
     this.pendingSpawns = 0;
     this.spawnTimers = [];
     this.nextWaveTimer = null;
@@ -1217,6 +1227,7 @@ class StarwingScene extends Phaser.Scene {
     this.lastDroneShotAt = 0;
     this.lastDashTrailAt = 0;
     this.waveActive = false;
+    this.waveHadDamage = false;
     this.pendingSpawns = 0;
     this.spawnTimers = [];
     this.nextWaveTimer = null;
@@ -1681,6 +1692,7 @@ class StarwingScene extends Phaser.Scene {
 
     this.clearWaveTimers();
     this.waveActive = true;
+    this.waveHadDamage = false;
     const progressIndex = this.getProgressIndex();
     const isBossWave = this.levelWave === LEVEL_CONFIG.bossWave;
     if (isBossWave) {
@@ -2390,6 +2402,7 @@ class StarwingScene extends Phaser.Scene {
   damagePlayer(amount) {
     if (this.invulnerableUntil > this.time.now) return;
 
+    this.waveHadDamage = true;
     this.resetCombo();
     AUDIO.playHit();
 
@@ -2468,6 +2481,7 @@ class StarwingScene extends Phaser.Scene {
     if (!this.waveActive || this.pendingSpawns > 0 || this.enemies.countActive(true) > 0) return;
 
     this.waveActive = false;
+    const flawlessMessage = this.awardFlawlessWaveBonus();
     if (this.wave >= LEVEL_CONFIG.maxLevel && this.levelWave >= LEVEL_CONFIG.wavesPerLevel) {
       this.endMission(true);
       return;
@@ -2477,16 +2491,31 @@ class StarwingScene extends Phaser.Scene {
       this.wave += 1;
       this.levelWave = 1;
       this.addScore(700 + this.wave * 90);
-      this.updateHud(`第 ${this.wave - 1} 关完成，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关。`);
+      this.updateHud(`${flawlessMessage}${flawlessMessage ? " " : ""}第 ${this.wave - 1} 关完成，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关。`);
     } else {
       this.levelWave += 1;
       this.addScore(120 + this.levelWave * 18 + this.wave * 35);
-      this.updateHud(`航道暂时清空，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关第 ${this.levelWave}/${LEVEL_CONFIG.wavesPerLevel} 波。`);
+      this.updateHud(`${flawlessMessage}${flawlessMessage ? " " : ""}航道暂时清空，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关第 ${this.levelWave}/${LEVEL_CONFIG.wavesPerLevel} 波。`);
     }
     this.nextWaveTimer = this.time.delayedCall(1150, () => {
       this.nextWaveTimer = null;
       this.spawnWave();
     });
+  }
+
+  awardFlawlessWaveBonus() {
+    if (this.waveHadDamage) return "";
+
+    const isBossWave = this.levelWave === LEVEL_CONFIG.bossWave;
+    const score = isBossWave ? FLAWLESS_WAVE_CONFIG.bossScore : FLAWLESS_WAVE_CONFIG.score;
+    const shield = isBossWave ? FLAWLESS_WAVE_CONFIG.bossShield : FLAWLESS_WAVE_CONFIG.shield;
+    const overdrive = isBossWave ? FLAWLESS_WAVE_CONFIG.bossOverdriveCharge : FLAWLESS_WAVE_CONFIG.overdriveCharge;
+
+    this.addScore(score + this.wave * 18 + this.levelWave * 8);
+    this.shield = clamp(this.shield + shield, 0, this.maxShield);
+    this.addOverdriveCharge(overdrive);
+    this.showComboRewardText(isBossWave ? "完美击破" : "完美清波");
+    return isBossWave ? "Boss 完美击破，护盾与超载回充。" : "完美清波，护盾与超载回充。";
   }
 
   endMission(victory) {
