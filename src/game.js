@@ -167,6 +167,16 @@ const FLAWLESS_WAVE_CONFIG = {
   bossOverdriveCharge: 24,
 };
 
+const LEVEL_CLEAR_BONUS_CONFIG = {
+  score: 760,
+  scorePerLevel: 110,
+  shield: 22,
+  shieldPerLevel: 3,
+  overdriveCharge: 18,
+  bomb: 1,
+  cappedBombScore: 260,
+};
+
 const BOSS_PHASES = [
   {
     threshold: 1,
@@ -2488,14 +2498,15 @@ class StarwingScene extends Phaser.Scene {
     }
 
     if (this.levelWave >= LEVEL_CONFIG.wavesPerLevel) {
+      const completedLevel = this.wave;
       this.wave += 1;
       this.levelWave = 1;
-      this.addScore(700 + this.wave * 90);
-      this.updateHud(`${flawlessMessage}${flawlessMessage ? " " : ""}第 ${this.wave - 1} 关完成，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关。`);
+      const levelClearMessage = this.awardLevelClearBonus(completedLevel);
+      this.updateHud([flawlessMessage, levelClearMessage, `第 ${completedLevel} 关完成，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关。`].filter(Boolean).join(" "));
     } else {
       this.levelWave += 1;
       this.addScore(120 + this.levelWave * 18 + this.wave * 35);
-      this.updateHud(`${flawlessMessage}${flawlessMessage ? " " : ""}航道暂时清空，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关第 ${this.levelWave}/${LEVEL_CONFIG.wavesPerLevel} 波。`);
+      this.updateHud([flawlessMessage, `航道暂时清空，准备第 ${this.wave}/${LEVEL_CONFIG.maxLevel} 关第 ${this.levelWave}/${LEVEL_CONFIG.wavesPerLevel} 波。`].filter(Boolean).join(" "));
     }
     this.nextWaveTimer = this.time.delayedCall(1150, () => {
       this.nextWaveTimer = null;
@@ -2516,6 +2527,23 @@ class StarwingScene extends Phaser.Scene {
     this.addOverdriveCharge(overdrive);
     this.showComboRewardText(isBossWave ? "完美击破" : "完美清波");
     return isBossWave ? "Boss 完美击破，护盾与超载回充。" : "完美清波，护盾与超载回充。";
+  }
+
+  awardLevelClearBonus(completedLevel) {
+    const shield = LEVEL_CLEAR_BONUS_CONFIG.shield + completedLevel * LEVEL_CLEAR_BONUS_CONFIG.shieldPerLevel;
+    const score = LEVEL_CLEAR_BONUS_CONFIG.score + completedLevel * LEVEL_CLEAR_BONUS_CONFIG.scorePerLevel;
+    const bombAdded = this.bombs < this.maxBombs;
+
+    this.addScore(score);
+    this.shield = clamp(this.shield + shield, 0, this.maxShield);
+    this.addOverdriveCharge(LEVEL_CLEAR_BONUS_CONFIG.overdriveCharge);
+    if (bombAdded) {
+      this.bombs = clamp(this.bombs + LEVEL_CLEAR_BONUS_CONFIG.bomb, 0, this.maxBombs);
+    } else {
+      this.addScore(LEVEL_CLEAR_BONUS_CONFIG.cappedBombScore);
+    }
+    this.showComboRewardText("关卡整备");
+    return bombAdded ? "关卡整备完成，护盾、超载与 +1 炸弹入舱。" : "关卡整备完成，护盾与超载回充。";
   }
 
   endMission(victory) {
